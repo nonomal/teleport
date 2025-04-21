@@ -20,6 +20,7 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gravitational/trace"
@@ -483,6 +484,107 @@ func statusFromErrCode(errCode uint32) events.Status {
 		Success:     success,
 		Error:       msg,
 		UserMessage: msg,
+	}
+}
+
+type pendingAuditEvent struct {
+	evt         *events.DesktopSharedDirectoryRead
+	initialTime time.Time
+	timer       clockwork.Timer
+}
+
+// readAuditTracker combines related directory sharing audit events
+// into single events to reduct the total number of audit events
+// emitted when using the directory sharing feature.
+//
+// Any number of related events that occur less than [debounce] from
+// the previous event will be combined, so long as the first event in
+// the series was less than [maxDebounce] ago.
+type readAuditTracker struct {
+	debounce    time.Duration
+	maxDebounce time.Duration
+
+	emitFn func(context.Context, events.AuditEvent)
+
+	// TODO add mutex
+	clock         clockwork.Clock
+	pendingEvents map[string]*pendingAuditEvent
+}
+
+func (r *readAuditTracker) key(directoryID uint32, directoryName, filePath string) string {
+	return fmt.Sprintf("%v:%v:%v", directoryID, directoryName, filePath)
+}
+
+func (r *readAuditTracker) addEvent(evt *events.DesktopSharedDirectoryRead) {
+	key := r.key(evt.DirectoryID, evt.DirectoryName, evt.Path)
+	pending, ok := r.pendingEvents[key]
+	if !ok {
+		// schedule the event to be emitted in the future
+		r.pendingEvents[key] = &pendingAuditEvent{
+			evt:         evt,
+			initialTime: r.clock.Now(),
+			timer: r.clock.AfterFunc(r.debounce, func() {
+				r.emitFn(context.TODO(), evt)
+				delete(r.pendingEvents, key)
+			}),
+		}
+		return
+	}
+
+	// We already have a pending event queued up. Two possible cases:
+	// 1) We haven't exceeded max debounce, so we can update the existing
+	//    event and reschedule the emit for further in the future.
+	// 2) We've exceeded the max debounce, so we need to emit what we have
+	//    been holding in a pending state now, and then schedule the next
+	//    emit for a later time.
+
+	if time.Since(pending.initialTime) < r.maxDebounce {
+		// Case 1: update pending data and reschedule.
+		if pending.timer.Reset(r.debounce) {
+			pending.evt.Length += evt.Length
+		} else {
+			// We were too late to reset the timer, which means
+			// the pending event has already been emitted.
+			r.pendingEvents[key] = &pendingAuditEvent{
+				evt:         evt,
+				initialTime: r.clock.Now(),
+				timer: r.clock.AfterFunc(r.debounce, func() {
+					r.emitFn(context.TODO(), evt)
+					delete(r.pendingEvents, key)
+				}),
+			}
+		}
+	} else {
+		// Case 2: emit the pending data now and schedule next emit.
+		if pending.timer.Stop() {
+			// Only emit if we're sure we stopped the timer,
+			// otherwise the event was already emitted.
+			r.emitFn(context.TODO(), pending.evt)
+		}
+
+		// schedule the next event to be emitted in the future
+		r.pendingEvents[key] = &pendingAuditEvent{
+			evt:         evt,
+			initialTime: r.clock.Now(),
+			timer: r.clock.AfterFunc(r.debounce, func() {
+				r.emitFn(context.TODO(), evt)
+				delete(r.pendingEvents, key)
+			}),
+		}
+	}
+}
+
+func (r *readAuditTracker) flush() {
+	var eventsToEmit []events.AuditEvent
+	for k, pending := range r.pendingEvents {
+		if pending.timer.Stop() {
+			eventsToEmit = append(eventsToEmit, pending.evt)
+		}
+		delete(r.pendingEvents, k)
+	}
+
+	for _, evt := range eventsToEmit {
+		r.emitFn(context.TODO(), evt)
 	}
 }
 
