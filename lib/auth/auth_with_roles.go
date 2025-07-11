@@ -4480,6 +4480,74 @@ func (a *ServerWithRoles) ListRoles(ctx context.Context, req *proto.ListRolesReq
 	}, nil
 }
 
+// ListRequestableRoles is a paginated requestable role getter.
+func (a *ServerWithRoles) ListRequestableRoles(ctx context.Context, req *proto.ListRequestableRolesRequest) (*proto.ListRequestableRolesResponse, error) {
+	if req.Limit == 0 || req.Limit > apidefaults.DefaultChunkSize {
+		req.Limit = apidefaults.DefaultChunkSize
+	}
+
+	requestValidator, err := services.NewRequestValidator(ctx, a.authServer.clock, a.authServer.Services, a.context.GetUserMetadata().User)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// Convert ListRequestableRolesRequest to ListRolesRequest for compatibility with `IterateRoles`
+	listReq := &proto.ListRolesRequest{
+		Limit:    req.Limit,
+		StartKey: req.PageToken,
+		Filter:   req.Filter,
+	}
+
+	matchFunc, err := buildRequestableRoleMatchFunc(requestValidator, listReq)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	out, nextKey, err := a.authServer.IterateRoles(ctx, listReq, matchFunc)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return &proto.ListRequestableRolesResponse{
+		RequestableRoles: RolesToRequestableRoles(out),
+		NextPageToken:    nextKey,
+	}, nil
+}
+
+// BuildRequestableRoleMatchFunc builds the MatchFunc for listing requestable roles that only matches roles that the user can request.
+func buildRequestableRoleMatchFunc(requestValidator services.RequestValidator, req *proto.ListRolesRequest) (func(role *types.RoleV6) (bool, error), error) {
+	matchFunc := func(role *types.RoleV6) (bool, error) {
+		roleName := role.GetName()
+
+		// Apply any RoleFilters if defined.
+		if req.Filter != nil && !req.Filter.Match(role) {
+			return false, nil
+		}
+
+		if requestValidator.CanRequestRole(roleName) {
+			return true, nil
+		}
+
+		return false, nil
+	}
+
+	return matchFunc, nil
+}
+
+// NewRequestableRoles converts a list of roles to RequestableRoles, stripping all data except the name and description.
+func RolesToRequestableRoles(roles []*types.RoleV6) []*types.RequestableRole {
+	items := make([]*types.RequestableRole, 0, len(roles))
+	for _, role := range roles {
+		item := &types.RequestableRole{
+			Name:        role.GetName(),
+			Description: role.GetMetadata().Description,
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
 func (a *ServerWithRoles) validateRole(role types.Role) error {
 	if downgradeReason := role.GetMetadata().Labels[types.TeleportDowngradedLabel]; downgradeReason != "" {
 		return trace.BadParameter("refusing to upsert role because %s label is set with reason %q",
