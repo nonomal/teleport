@@ -187,7 +187,7 @@ func (c *Cache) update(ctx context.Context, retry retryutils.Retry) {
 	}()
 
 	for {
-		err := c.fetchAndWatch(ctx)
+		err := c.fetchAndWatch(ctx, retry)
 		if ctx.Err() != nil {
 			return
 		}
@@ -197,6 +197,7 @@ func (c *Cache) update(ctx context.Context, retry retryutils.Retry) {
 		waitStart := time.Now()
 		select {
 		case <-retry.After():
+			retry.Inc()
 			slog.InfoContext(ctx, "attempting re-init of scoped access cache after delay", "delay", time.Since(waitStart))
 		case <-ctx.Done():
 			return
@@ -206,7 +207,7 @@ func (c *Cache) update(ctx context.Context, retry retryutils.Retry) {
 
 // fetchAndWatch attempts to establish a watcher with the upstream events service, populate the cache
 // state, and process changes as they come in.
-func (c *Cache) fetchAndWatch(ctx context.Context) error {
+func (c *Cache) fetchAndWatch(ctx context.Context, retry retryutils.Retry) error {
 	watcher, err := c.cfg.Events.NewWatcher(ctx, types.Watch{
 		Name: "scoped-access-cache",
 		Kinds: []types.WatchKind{
@@ -251,6 +252,7 @@ func (c *Cache) fetchAndWatch(ctx context.Context) error {
 	c.rw.Unlock()
 
 	slog.InfoContext(ctx, "scoped access cache successfully initialized")
+	retry.Reset()
 
 	// start processing and applying changes
 	for {
