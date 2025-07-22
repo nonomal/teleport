@@ -67,27 +67,31 @@ spec:
     # whether or not encryption should be enabled
     enabled: true
     # whether or not Teleport should manage the keys or simply consume them
-    key_manager: 'keystore|teleport'
-    # key labels Teleport will use to find active encryption keys when mode is
-    # set to "keystore-managed"
-    active_key_labels: []
-    # key labels Teleport will use to find rotated encryption keys when mode is
-    # set to "keystore-managed"
-    rotated_key_labels: []
+    manual_key_management:
+      enabled: true
+      # key labels Teleport will use to find active encryption keys when
+      # 'enabled' is true
+      active_keys:
+        - type: pkcs11
+          label: 'pkcs11-key-label'
+        - type: aws_kms
+          label: 'aws key ID'
+      # key labels Teleport will use to find rotated decryption keys when
+      # 'enabled' is true
+      rotated_keys: []
 ```
 
 HSM integration is facilitated through the existing configuration
 options for setting up an HSM backed CA keystore through pkcs#11. Example
 configuration found [here](https://goteleport.com/docs/admin-guides/deploy-a-cluster/hsm/#step-25-configure-teleport).
 
-The `key_manager` configuration controls whether or not the wrapping key used
-by `age` should be provisioned and managed by Teleport or by the configured
-keystore. When set to `teleport`, Teleport will provision, share,
-and rotate keys as necessary. When set to `keystore`, Teleport expects to
-have access to keys queryable using the configured `active_key_labels` and
-`rotated_key_labels`. Any keys found will be used during encryption and
-decryption and Teleport will not attempt to provision new keys or facilitate
-rotation.
+The `manual_key_management` configuration controls whether or not the wrapping
+keys used by `age` should be provisioned and managed by Teleport or by the
+configured keystore. When disabled, Teleport will provision, share, and rotate
+keys as necessary. When enabled, Teleport expects to have access to keys
+queryable using the key labels assigned to `active_keys` and `rotated_keys`.
+Any keys found will be used during encryption and decryption and Teleport will
+not attempt to provision new keys or facilitate rotation.
 
 These configuration options are also accessible in the `teleport.yml` file
 configuration under the `auth_service` section:
@@ -95,11 +99,16 @@ configuration under the `auth_service` section:
 ```yaml
 # teleport.yml
 auth_service:
-  session_recording_config: node
-  session_recording_config_encryption: on
-  session_recording_config_key_manager: keystore
-  session_recording_config_active_key_labels: []
-  session_recording_config_rotated_key_labels: []
+  session_recording: node
+  session_recording_config:
+    encryption:
+      enabled: true
+      manual_key_management:
+        enabled: true
+        active_keys:
+          - type: aws_kms
+            label: 'aws key ID'
+        rotated_keys: []
 ```
 
 ### Protobuf Changes
@@ -470,51 +479,31 @@ their native decryption functions in order to unwrap `age` file keys:
   `CKM_SHA256` mechanisms which are usable when calling the `C_DecryptInit`
   function exposed by PKCS#11.
 
-In order to collaboratively generate and share the REK pair, all auth servers
-must create a watcher for `Put` events against the `recording_encryption`
-resource. Modifications to this resource will signal existing auth servers to
-investigate whether or not there is work that needs to be done. For example,
-when adding a new auth server to an environment, it will find that there is
-already a REK pair configured. It will check if any active keys are accessible
-(detailed below) and, in the case that there are none, add an unfulfilled key
-to the active key list. An unfulfilled key consists of an empty key pair with a
-keystore generated RSA public key meant for key exchange. Any other auth server
-with access to a valid `RecordingEncryptionKey` can inspect the unfulfilled
-key, use it to wrap their own copy of the REK private key, and write it to the
-unfulfilled private key. The new auth server will be notified of the change,
-see that their key has been fulfilled, and finish the import process using
-their configured keystore.
-
-Some keystores support this sort of wrapped key exchange without ever exposing
-the secret key to software which should be preferred whenever avaialble. In
-cases where a more secure key exchange is not supported, the private key will
-be decrypted by the Teleport auth service to be software OAEP encrypted using
-the import key. Parameters for encryption are dependent on the importing
-keystore, but should prefer using `RSA4096` with `SHA256`.
-
 Each time there is a change to the active keys, the set of public keys will
 also be assigned to `session_recording_config.status.encryption_keys` to be
 used by nodes throughout the cluster.
-
-When using centralized keystores, such as AWS KMS, auth servers may share
-access to the same key. In that case no additional recording encryption key
-will be provisioned.
 
 In order to avoid unintended automatic deletion, keys provisioned for encrypted
 session recording will be tagged with a different label where applicable. This
 will prevent older auth servers from deleting this new keytype and allow new
 auth servers to identify which keys are no longer in use before deletion.
 
+Auth servers will need to create a watcher for `Put` events against the
+`recording_encryption` resource in order to ensure continued access to the
+correct decryption keys. This will most often come into play during key
+rotations and keystore migrations when new keys enter the active set and old
+keys shift into the rotated set.
+
 #### Keystore Managed
 
 When key management is left to the keystore, Teleport makes no attempt at
 generating encryption keys. Instead it will use the labels defined in
-`session_recording_config.encryption.active_key_labels` and
-`session_recording_config.encryption.rotated_key_labels` to query keys from the
+`session_recording_config.encryption.active_keys` and
+`session_recording_config.encryption.rotated_keys` to query keys from the
 configured keystore. The key IDs are cached by a fingerprint of their public
 keys and and the active public keys are written to the
 `session_recording_config.status.encryption_keys` list. The auth server will
-refresh its keys whenever it's notified of `session_recording_config` change
+refresh its keys whenever it's notified of `session_recording_config` changes
 and also periodically to capture any new keys created with the same labels.
 
 It's important to note that historical recordings will only be accessible if
@@ -549,17 +538,21 @@ Teleport process.
 
 For AWS KMS and GCP KMS things are a bit trickier. They both prevent exporting
 private key material and importing bare public keys. In order to circumvent
-this, we can create share-able KMS keys by:
+this, we can create share-able KMS keys using the following flow:
 
-- Generating a new KMS key.
-- Using that key to generate an asymmetric data key, exporting the encrypted
-  private key and saving it for future sharing.
+- Initial auth server generates a new "root" KMS key.
+- Generate an asymmetric data key, export the encrypted
+  private key, and save it for future sharing.
 - Import the generated asymmetric key back into KMS. This requires reencrypting
   in software and exposes the private key to the Teleport process.
-- Decrypting file keys for replay would happen entirely within KMS.
-- When a new key is published with an import key, we will again reencrypt in
-  software by using the original KMS key generated in the first step and the
-  encrypted private key.
+- Decrypti file keys for replay within KMS using the imported asymmetric key.
+- New auth server enters cluster and detects an inaccessible key.
+- New auth server adds an "unfulfilled" key to the active keys list along with
+  a public import key.
+- Initial auth server will reencrypt the original private key in software using
+  the provided import key, fulfilling the new auth server.
+- The new auth server now has access to the same private key in order to
+  decrypt historical recordings.
 
 One final alternative would be to fallback to the intermediate software key
 originally proposed in this RFD. However, it exposes private key material to
@@ -635,20 +628,20 @@ rotation might look like is:
 
 ```yml
 encryption:
-  active_key_labels: ['recording_2024']
+  active_keys: ['recording_2024']
   rotated_keys: []
 ```
 
 ##### [2/5] Provision keys with new label
 
-Provision new, labeled keyparis in all configured keystores. This example
+Provision new, labeled keypairs in all configured keystores. This example
 assumes `recording_2025`.
 
 ##### [3/5] Add new label to active keys
 
 ```yml
 encryption:
-  active_key_labels: ['recording_2025', 'recording_2024']
+  active_key: ['recording_2025', 'recording_2024']
   rotated_keys: []
 ```
 
