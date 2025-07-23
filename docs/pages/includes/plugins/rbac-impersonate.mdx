@@ -9,7 +9,7 @@ privileges.
 
 To grant your user impersonation privileges for `access-plugin`, define a user
 named `access-plugin` and a role named `access-plugin-impersonator` by adding
-the following YAML document into a file called `access-plugin.yaml`:
+the following YAML document into a file called `access-plugin-impersonator.yaml`:
 
 ```yaml
 kind: user
@@ -35,7 +35,7 @@ spec:
 Create the user and role:
 
 ```code
-$ tctl create -f access-plugin.yaml
+$ tctl create -f access-plugin-impersonator.yaml
 user "access-plugin" has been created
 role "access-plugin-impersonator" has been created
 ```
