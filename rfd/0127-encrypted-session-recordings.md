@@ -43,12 +43,18 @@ This document proposes [age](https://github.com/FiloSottile/age) as the
 encryption format for session recordings. It was chosen for its provenance,
 simplicity, and focus on strong cryptography defaults without requiring
 customization. The formal spec can be found
-[here](https://age-encryption.org/v1). Officially supported key wrapping
-algorithms are limited to X25519, Ed25519, and RSA. Support for other
+[here](https://age-encryption.org/v1). The officially supported key wrapping
+algorithms for `age` are limited to X25519, Ed25519, and RSA. Support for other
 algorithms requires implementing a custom plugin or requesting modifications
 from the upstream. The algorithms employed by `age` are not currently
 compatible with FIPS, which means configuring encrypted sessions while in FIPS
 mode will result in failed startup.
+
+In order to support key unwrapping directly within HSM and KMS systems, this
+RFD proposes a custom `age` plugin that uses RSA 4096 keypairs in combination
+with the decryption APIs exposed by each keystore backend. The choice of RSA is
+largely due to it's wide compatibility across all keystores supported by
+Teleport.
 
 Below is a high level diagram showing how `age` encryption and decryption work:
 ![age diagram](assets/0127-age-high-level.png)
@@ -471,7 +477,7 @@ their native decryption functions in order to unwrap `age` file keys:
 
 - AWS KMS supports setting an algorithm of `RSAES_OAEP_SHA_256` when using the
   `Decrypt` action of the KMS API.
-- GCP CKM supports generating keys of type `RSAES_OAEP_2048_SHA256` which can
+- GCP CKM supports generating keys of type `RSAES_OAEP_4096_SHA256` which can
   be used when calling the `AsymmetricDecrypt` API from their go SDK. Worth
   noting that keys generated for signing can not be used for decryption, so key
   generation with a GCP backend will need to be modified slightly.
@@ -502,9 +508,11 @@ generating encryption keys. Instead it will use the labels defined in
 `session_recording_config.encryption.rotated_keys` to query keys from the
 configured keystore. The key IDs are cached by a fingerprint of their public
 keys and and the active public keys are written to the
-`session_recording_config.status.encryption_keys` list. The auth server will
-refresh its keys whenever it's notified of `session_recording_config` changes
-and also periodically to capture any new keys created with the same labels.
+`session_recording_config.status.encryption_keys` list. A fingerprint in the
+context of this RFD is a base64 encoded `SHA256` hash of the public key in
+PKIX ASN.1 DER form. The auth server will refresh its keys whenever it's
+notified of `session_recording_config` changes and also periodically to capture
+any new keys created with the same labels.
 
 It's important to note that historical recordings will only be accessible if
 all auth servers have access to the correct keys. It is the responsibility of
@@ -523,13 +531,14 @@ facilitate.
 In order for all auth servers in a cluster to replay all recordings, they will
 need access to the same keys. There are common cases where keys are easily
 shared, such as a software key or an AWS KMS key that all auth servers have
-access to. This RFD proposes that recording encryption should assume that
-keystores and keys are available to all auth servers in a cluster. This would
-require either adjusting HSM key IDs to remove the `host_uuid` or ignoring the
-`host_uuid` altogether during recording encryption.
+access to. This RFD proposes that recording encryption should assume shared
+access to the same keys and keystores from all auth servers in a cluster. For
+networked HSMs, this will require replacing the `host_uuid` label applied to
+keys with a shared label signalling recording encryption.
 
-If there is a need to support multi-keystore clusters, we have a couple of
-options laid out below.
+While this RFD no longer proposes building in support for multi-keystore
+clusters, some of the research involved with supporting this is documented
+below.
 
 For sharing between HSMs, Teleport could facilitate a process similar to
 the one defined in [pkcs11-tools](https://github.com/Mastercard/pkcs11-tools/blob/master/docs/MANUAL.md#exchanging-a-keys-between-tokens---the-long-way).
