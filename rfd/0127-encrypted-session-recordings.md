@@ -198,6 +198,9 @@ enum KeyState {
   KEY_STATE_ROTATING = 2;
   // KEY_STATE_ROTATED marks a key as fully rotated.
   KEY_STATE_ROTATED = 3;
+  // KEY_STATE_INACCESSIBLE marks a key that is not accessible to at least one
+  // auth server in the cluster.
+  KEY_STATE_INACCESSIBLE = 4;
 }
 
 // RecordingEncryptionKey represents an asymmetric encryption key pair usable
@@ -637,7 +640,9 @@ rotation might look like is:
 
 ```yml
 encryption:
-  active_keys: ['recording_2024']
+  active_keys:
+    - type: pkcs11
+      label: recording_2024
   rotated_keys: []
 ```
 
@@ -650,7 +655,11 @@ assumes `recording_2025`.
 
 ```yml
 encryption:
-  active_key: ['recording_2025', 'recording_2024']
+  active_keys:
+    - type: pkcs11
+      label: recording_2025
+    - type: pkcs11
+      label: recording_2024
   rotated_keys: []
 ```
 
@@ -661,8 +670,12 @@ a chance to confirm the new keys are working without potentially losing data.
 
 ```yml
 encryption:
-  active_key_labels: ['recording_2025']
-  rotated_keys: ['recording_2024']
+  active_keys:
+    - type: pkcs11
+      label: recording_2025
+  rotated_keys:
+    - type: pkcs11
+      label: recording_2024
 ```
 
 New recordings will only be encrypted using `recording_2025` keys, but old
@@ -672,7 +685,9 @@ recordings will still be replayable with `recording_2024` keys.
 
 ```yml
 encryption:
-  active_key_labels: ['recording_2025']
+  active_keys:
+    - type: pkcs11
+      label: recording_2025
   rotated_keys: []
 ```
 
@@ -689,10 +704,7 @@ similar rotation.
 In order to prevent a single recording encryption key (REK) from decrypting all
 session recordings ever recorded, we will need to provide a rotation process.
 This will require exposing a new set of RPCs as previously defined in the
-recording encryption service protobuf. The steps here include a proposed path
-for facilitating key sharing. If Teleport assumes shared access to keys by all
-auth servers in the cluster, rotation would include the same handling of RPCs
-described without any intermediate notification round trips.
+recording encryption service protobuf.
 
 ![encryption](assets/0127-key-rotation.png)
 
@@ -700,34 +712,23 @@ When an auth server receives a `RotateRecordingEncryptionKey` RPC call, it
 will:
 
 - Fetch all active keys from `recording_encryption.spec.active_keys`.
-- Generate a new `RSA4096` REK within its keystore and add it to the list of
+- Generate a new `RSA 4096` REK within the keystore and add it to the list of
   active keys.
-- Change the `state` of each active `RecordingEncryptionKey` to `rotating`.
+- Change the `state` of the existing active key pair to `rotating`.
 - Apply all writes described in a single, atomic write to the backend.
 
 Other auth servers in the cluster will be notified through a watch of the
 `recording_encryption` resource and will:
 
-- Detect they have no keys that are accessible and active.
-- Provision an import key from their keystore.
-- Publish an unfulfilled `RecordingEncryptionKey` to the active keys list.
-- Wait for their key to be fulfilled.
-
-The original auth server, or any auth server that has completed their rotation,
-will then be notified when an unfulfilled key is published. It will:
-
-- Find the unfulfilled keys
-- Use their import keys to wrap the new recording encryption private key.
-- Fulfill all keys with their encrypted copy of the private key.
-
-The unfulfilled auth servers will then be notified, import the key into their
-key store, and mark their new key as `active`.
+- Check if the new active key is accessible.
+- If not, update the key state to `inaccessible`.
 
 Rotation is completed manually by issuing a `CompleteRotation` RPC which will
-move all `rotating` keys into their own `rotated_keys` resource queryable by
-the public key that should be shared between them. Similarly the
-`RollbackRotation` RPC will remove all newly `active` keys and revert
-`rotating` keys back to `active`.
+move the `rotating` key into its own `rotated_keys` resource queryable by the
+its public key fingerprint. Similarly the `RollbackRotation` RPC will remove
+all newly `active` keys and revert `rotating` keys back to `active`. Completing
+key rotation will not be possible if the active key is marked as `inaccessible`
+and instead the rotation should be rolled back and tried again.
 
 It's worth noting that `rotating` keys will continue to be included as `age`
 recipients during encryption. This should ensure no data loss in the event of
@@ -767,7 +768,8 @@ tctl recordings encryption rotate --status
 ```
 
 Including the `--status` flag issues a request to the `GetRotationState` RPC to
-return whether or not a key rotation is in progress.
+return whether or not a key rotation is in progress or if the new active key
+has been marked as inaccessible.
 
 ### Security
 
