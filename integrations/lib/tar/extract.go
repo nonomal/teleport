@@ -27,9 +27,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/trace"
-
-	"github.com/gravitational/teleport/integrations/lib/stringset"
 )
 
 // Compression is a compression flag.
@@ -91,9 +90,9 @@ func Extract(reader io.Reader, options ExtractOptions) error {
 
 	tarReader := tar.NewReader(reader)
 
-	var filesDone stringset.StringSet
+	var filesDone utils.Set[string]
 	if len(options.Files) > 0 {
-		filesDone = stringset.New(options.Files...)
+		filesDone = utils.NewSet(options.Files...)
 	}
 	for filesDone == nil || filesDone.Len() > 0 {
 		header, err := tarReader.Next()
@@ -107,7 +106,7 @@ func Extract(reader io.Reader, options ExtractOptions) error {
 		if filesDone != nil && !filesDone.Contains(header.Name) {
 			continue
 		}
-		filesDone.Del(header.Name)
+		filesDone.Remove(header.Name)
 
 		outFileName := header.Name
 		if strip := int(options.StripComponents); strip > 0 {
@@ -139,7 +138,7 @@ func Extract(reader io.Reader, options ExtractOptions) error {
 	}
 
 	if filesDone.Len() > 0 {
-		return trace.Errorf("files not found in the archive: %s", strings.Join(filesDone.ToSlice(), ", "))
+		return trace.Errorf("files not found in the archive: %s", strings.Join(filesDone.Elements(), ", "))
 	}
 
 	return nil
