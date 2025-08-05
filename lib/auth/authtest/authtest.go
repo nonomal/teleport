@@ -539,6 +539,7 @@ func InitAuthCache(p AuthCacheParams) error {
 		Provisioner:             p.AuthServer.Services.Provisioner,
 		Restrictions:            p.AuthServer.Services.Restrictions,
 		SAMLIdPServiceProviders: p.AuthServer.Services.SAMLIdPServiceProviders,
+		SAMLIdPSession:          p.AuthServer.Services.Identity,
 		SecReports:              p.AuthServer.Services.SecReports,
 		SnowflakeSession:        p.AuthServer.Services.Identity,
 		SPIFFEFederations:       p.AuthServer.Services.SPIFFEFederations,
@@ -558,9 +559,7 @@ func InitAuthCache(p AuthCacheParams) error {
 		IdentityCenter:          p.AuthServer.Services.IdentityCenter,
 		PluginStaticCredentials: p.AuthServer.Services.PluginStaticCredentials,
 		GitServers:              p.AuthServer.Services.GitServers,
-		HealthCheckConfig:       p.AuthServer.Services.HealthCheckConfig,
 		BotInstance:             p.AuthServer.Services.BotInstance,
-		RecordingEncryption:     p.AuthServer.Services.RecordingEncryptionManager,
 		Plugin:                  p.AuthServer.Services.Plugins,
 	})
 	if err != nil {
@@ -1433,9 +1432,7 @@ func WithRoleMutator(mutate ...func(role types.Role)) CreateUserAndRoleOption {
 // If allowRules is not-nil, then the rules associated with the role will be
 // replaced with those specified.
 func CreateUserAndRole(clt UserRoleClient, username string, allowedLogins []string, allowRules []types.Rule, opts ...CreateUserAndRoleOption) (types.User, types.Role, error) {
-	o := createUserAndRoleOptions{
-		version: types.DefaultRoleVersion,
-	}
+	o := createUserAndRoleOptions{}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -1445,7 +1442,7 @@ func CreateUserAndRole(clt UserRoleClient, username string, allowedLogins []stri
 		return nil, nil, trace.Wrap(err)
 	}
 
-	role := services.RoleWithVersionForUser(user, o.version)
+	role := services.RoleForUser(user)
 	role.SetLogins(types.Allow, allowedLogins)
 	if allowRules != nil {
 		role.SetRules(types.Allow, allowRules)

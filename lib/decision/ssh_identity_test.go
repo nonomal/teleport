@@ -64,7 +64,6 @@ func TestSSHIdentityConversion(t *testing.T) {
 		Generation:    3,
 		BotName:       "bot",
 		BotInstanceID: "instance",
-		JoinToken:     "join-token",
 		AllowedResourceIDs: []types.ResourceID{{
 			ClusterName:     "cluster",
 			Kind:            types.KindKubePod, // must use a kube resource kind for parsing of sub-resource to work correctly

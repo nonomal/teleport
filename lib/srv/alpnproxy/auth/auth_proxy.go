@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/gravitational/trace"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
@@ -43,12 +44,13 @@ type sitesGetter interface {
 }
 
 // NewAuthProxyDialerService create new instance of AuthProxyDialerService.
-func NewAuthProxyDialerService(reverseTunnelServer sitesGetter, localClusterName string, authServers []string, proxySigner multiplexer.PROXYHeaderSigner, tracer oteltrace.Tracer) *AuthProxyDialerService {
+func NewAuthProxyDialerService(reverseTunnelServer sitesGetter, localClusterName string, authServers []string, proxySigner multiplexer.PROXYHeaderSigner, log logrus.FieldLogger, tracer oteltrace.Tracer) *AuthProxyDialerService {
 	return &AuthProxyDialerService{
 		reverseTunnelServer: reverseTunnelServer,
 		localClusterName:    localClusterName,
 		authServers:         authServers,
 		proxySigner:         proxySigner,
+		log:                 log,
 		tracer:              tracer,
 	}
 }
@@ -60,6 +62,7 @@ type AuthProxyDialerService struct {
 	localClusterName    string
 	authServers         []string
 	proxySigner         multiplexer.PROXYHeaderSigner
+	log                 logrus.FieldLogger
 	tracer              oteltrace.Tracer
 }
 
@@ -193,7 +196,7 @@ func (s *AuthProxyDialerService) proxyConn(ctx context.Context, upstreamConn, do
 		errC <- trace.Wrap(err)
 	}()
 	var errs []error
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		select {
 		case <-ctx.Done():
 			return trace.Wrap(ctx.Err())

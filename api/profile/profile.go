@@ -23,7 +23,6 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/gravitational/teleport/api/defaults"
+	"github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/api/utils/keypaths"
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/api/utils/keys/hardwarekey"
@@ -333,7 +333,7 @@ func UserHomeDir() (string, bool) {
 		return home, true
 	}
 	// Fall back to the user lookup.
-	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+	if u, err := utils.CurrentUser(); err == nil && u.HomeDir != "" {
 		return u.HomeDir, true
 	}
 	return "", false

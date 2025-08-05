@@ -48,7 +48,6 @@ import (
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/automaticupgrades"
-	"github.com/gravitational/teleport/lib/boundkeypair"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/fixtures"
 	"github.com/gravitational/teleport/lib/modules"
@@ -56,7 +55,6 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	libui "github.com/gravitational/teleport/lib/ui"
 	utils "github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 	"github.com/gravitational/teleport/lib/web/ui"
 )
 
@@ -751,15 +749,6 @@ func setMinimalConfigForMethod(spec *types.ProvisionTokenSpecV2, method types.Jo
 				},
 			},
 		}
-	case types.JoinMethodBoundKeypair:
-		spec.BoundKeypair = &types.ProvisionTokenSpecV2BoundKeypair{
-			Onboarding: &types.ProvisionTokenSpecV2BoundKeypair_OnboardingSpec{
-				InitialPublicKey: "abcd",
-			},
-			Recovery: &types.ProvisionTokenSpecV2BoundKeypair_RecoverySpec{
-				Mode: boundkeypair.RecoveryModeInsecure,
-			},
-		}
 	}
 }
 
@@ -1391,7 +1380,7 @@ func newAutoupdateTestHandler(t *testing.T, config autoupdateTestHandlerConfig) 
 			PublicProxyAddr:           addr,
 			ProxyClient:               clt,
 		},
-		logger: logtest.NewLogger(),
+		logger: utils.NewSlogLoggerForTests(),
 	}
 	h.PublicProxyAddr()
 	return h
@@ -1554,6 +1543,7 @@ func TestGetAppJoinScript(t *testing.T) {
 	}
 
 	for _, tc := range tests {
+		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			script, err = h.getJoinScript(context.Background(), tc.settings)
 			if tc.shouldError {

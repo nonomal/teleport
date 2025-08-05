@@ -28,7 +28,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -183,7 +182,13 @@ func (e *wsStreamClient) Stream(options clientremotecommand.StreamOptions) error
 	defer conn.Close()
 	streamingProto := conn.Subprotocol()
 
-	found := slices.Contains(supportedProtocols, streamingProto)
+	found := false
+	for _, p := range supportedProtocols {
+		if p == streamingProto {
+			found = true
+			break
+		}
+	}
 	if !found {
 		return fmt.Errorf("unsupported streaming protocol: %q", streamingProto)
 	}
@@ -207,7 +212,13 @@ func (e *wsStreamClient) ForwardPorts() error {
 	defer conn.Close()
 	streamingProto := conn.Subprotocol()
 
-	found := slices.Contains(supportedProtocols, streamingProto)
+	found := false
+	for _, p := range supportedProtocols {
+		if p == streamingProto {
+			found = true
+			break
+		}
+	}
 	if !found {
 		return fmt.Errorf("unsupported streaming protocol: %q", streamingProto)
 	}
@@ -461,7 +472,7 @@ func (e *wsStreamClient) handlePortForwardRequest(conn net.Conn, remoteConn *gwe
 						return
 					}
 				case portforwardErrChan:
-					err := trace.Errorf("%s", string(buf[1:]))
+					err := trace.Errorf(string(buf[1:]))
 					errChan <- trace.Wrap(err)
 					// Once we receive an error from streamErr, we must stop processing.
 					// The server also stops the execution and closes the connection.

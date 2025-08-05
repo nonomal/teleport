@@ -66,29 +66,6 @@ func UploadDownload(t *testing.T, handler events.MultipartHandler) {
 	require.Equal(t, string(data), val)
 }
 
-// UploadDownloadSummary tests summary uploads and downloads
-func UploadDownloadSummary(t *testing.T, handler events.MultipartHandler) {
-	val := "this is the summary file"
-	id := session.NewID()
-	_, err := handler.UploadSummary(t.Context(), id, bytes.NewBuffer([]byte(val)))
-	require.NoError(t, err)
-
-	f, err := os.CreateTemp("", string(id))
-	require.NoError(t, err)
-	defer os.Remove(f.Name())
-	defer f.Close()
-
-	err = handler.DownloadSummary(context.TODO(), id, f)
-	require.NoError(t, err)
-
-	_, err = f.Seek(0, 0)
-	require.NoError(t, err)
-
-	data, err := io.ReadAll(f)
-	require.NoError(t, err)
-	require.Equal(t, string(data), val)
-}
-
 // DownloadNotFound tests handling of the scenario when download is not found
 func DownloadNotFound(t *testing.T, handler events.MultipartHandler) {
 	id := session.NewID()
@@ -410,7 +387,7 @@ func (s *EventsSuite) EventPagination(t *testing.T) {
 	}
 
 Outer:
-	for range names {
+	for i := 0; i < len(names); i++ {
 		arr, checkpoint, err = s.Log.SearchEvents(ctx, events.SearchEventsRequest{
 			From:     baseTime2,
 			To:       baseTime2.Add(time.Second),

@@ -33,7 +33,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/api/constants"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/cli"
 	"github.com/gravitational/teleport/lib/tbot/config"
@@ -131,10 +130,10 @@ func testConfigFromString(t *testing.T, yamlStr string) *config.BotConfig {
 
 // validateFileDestinations ensures all files in a destination exist on disk as
 // expected, and returns the destination.
-func validateFileDestination(t *testing.T, svc config.Initable) *destination.Directory {
+func validateFileDestination(t *testing.T, svc config.Initable) *config.DestinationDirectory {
 	destImpl := svc.GetDestination()
 
-	destDir, ok := destImpl.(*destination.Directory)
+	destDir, ok := destImpl.(*config.DestinationDirectory)
 	require.True(t, ok)
 
 	for _, art := range identity.GetArtifacts() {

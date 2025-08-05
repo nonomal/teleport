@@ -243,29 +243,21 @@ var eventsMap = map[string]apievents.AuditEvent{
 	AutoUpdateVersionCreateEvent:                  &apievents.AutoUpdateVersionCreate{},
 	AutoUpdateVersionUpdateEvent:                  &apievents.AutoUpdateVersionUpdate{},
 	AutoUpdateVersionDeleteEvent:                  &apievents.AutoUpdateVersionDelete{},
-	ContactCreateEvent:                            &apievents.ContactCreate{},
-	ContactDeleteEvent:                            &apievents.ContactDelete{},
 	WorkloadIdentityCreateEvent:                   &apievents.WorkloadIdentityCreate{},
 	WorkloadIdentityUpdateEvent:                   &apievents.WorkloadIdentityUpdate{},
 	WorkloadIdentityDeleteEvent:                   &apievents.WorkloadIdentityDelete{},
+	WorkloadIdentityX509IssuerOverrideCreateEvent: &apievents.WorkloadIdentityX509IssuerOverrideCreate{},
+	WorkloadIdentityX509IssuerOverrideDeleteEvent: &apievents.WorkloadIdentityX509IssuerOverrideDelete{},
+	ContactCreateEvent:                            &apievents.ContactCreate{},
+	ContactDeleteEvent:                            &apievents.ContactDelete{},
 	AccessRequestExpireEvent:                      &apievents.AccessRequestExpire{},
-	StableUNIXUserCreateEvent:                     &apievents.StableUNIXUserCreate{},
 	WorkloadIdentityX509RevocationCreateEvent:     &apievents.WorkloadIdentityX509RevocationCreate{},
 	WorkloadIdentityX509RevocationDeleteEvent:     &apievents.WorkloadIdentityX509RevocationDelete{},
 	WorkloadIdentityX509RevocationUpdateEvent:     &apievents.WorkloadIdentityX509RevocationUpdate{},
-	WorkloadIdentityX509IssuerOverrideCreateEvent: &apievents.WorkloadIdentityX509IssuerOverrideCreate{},
-	WorkloadIdentityX509IssuerOverrideDeleteEvent: &apievents.WorkloadIdentityX509IssuerOverrideDelete{},
+	StableUNIXUserCreateEvent:                     &apievents.StableUNIXUserCreate{},
 	SigstorePolicyCreateEvent:                     &apievents.SigstorePolicyCreate{},
 	SigstorePolicyUpdateEvent:                     &apievents.SigstorePolicyUpdate{},
 	SigstorePolicyDeleteEvent:                     &apievents.SigstorePolicyDelete{},
-	AWSICResourceSyncSuccessEvent:                 &apievents.AWSICResourceSync{},
-	AWSICResourceSyncFailureEvent:                 &apievents.AWSICResourceSync{},
-	HealthCheckConfigCreateEvent:                  &apievents.HealthCheckConfigCreate{},
-	HealthCheckConfigUpdateEvent:                  &apievents.HealthCheckConfigUpdate{},
-	HealthCheckConfigDeleteEvent:                  &apievents.HealthCheckConfigDelete{},
-	BoundKeypairRecovery:                          &apievents.BoundKeypairRecovery{},
-	BoundKeypairRotation:                          &apievents.BoundKeypairRotation{},
-	BoundKeypairJoinStateVerificationFailed:       &apievents.BoundKeypairJoinStateVerificationFailed{},
 }
 
 // TestJSON tests JSON marshal events
@@ -273,7 +265,7 @@ func TestJSON(t *testing.T) {
 	type testCase struct {
 		name  string
 		json  string
-		event any
+		event interface{}
 	}
 	testCases := []testCase{
 		{
@@ -506,20 +498,20 @@ func TestJSON(t *testing.T) {
 				UserMetadata: apievents.UserMetadata{
 					User: "bob@example.com",
 				},
-				IdentityAttributes: apievents.MustEncodeMap(map[string]any{
+				IdentityAttributes: apievents.MustEncodeMap(map[string]interface{}{
 					"followers_url": "https://api.github.com/users/bob/followers",
 					"err":           nil,
 					"public_repos":  20,
 					"site_admin":    false,
-					"app_metadata":  map[string]any{"roles": []any{"example/admins", "example/devc"}},
-					"emails": []any{
-						map[string]any{
+					"app_metadata":  map[string]interface{}{"roles": []interface{}{"example/admins", "example/devc"}},
+					"emails": []interface{}{
+						map[string]interface{}{
 							"email":      "bob@example.com",
 							"primary":    true,
 							"verified":   true,
 							"visibility": "public",
 						},
-						map[string]any{
+						map[string]interface{}{
 							"email":      "bob@alternative.com",
 							"primary":    false,
 							"verified":   true,
@@ -1003,6 +995,7 @@ func TestJSON(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1083,7 +1076,7 @@ func setProtoFields(msg proto.Message) {
 	m := msg.ProtoReflect()
 	fields := m.Descriptor().Fields()
 
-	for i := range fields.Len() {
+	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
 		if m.Has(fd) {
 			continue

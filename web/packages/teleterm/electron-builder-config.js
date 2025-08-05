@@ -59,7 +59,6 @@ if (process.env.TEAMID) {
 module.exports = {
   appId,
   asar: true,
-  publish: [{ provider: 'custom' }],
   asarUnpack: '**\\*.{node,dll}',
   afterPack: packed => {
     // @electron-universal adds the `ElectronAsarIntegrity` key to every .plist
@@ -201,10 +200,6 @@ module.exports = {
       env.CONNECT_WINTUN_DLL_PATH && {
         from: env.CONNECT_WINTUN_DLL_PATH,
         to: './bin/wintun.dll',
-      },
-      env.CONNECT_MSGFILE_DLL_PATH && {
-        from: env.CONNECT_MSGFILE_DLL_PATH,
-        to: './bin/msgfile.dll',
       },
     ].filter(Boolean),
   },

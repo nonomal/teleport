@@ -25,8 +25,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/internal/encoding"
 )
 
 var (
@@ -42,7 +40,7 @@ type KubernetesOutput struct {
 	// Name of the service for logs and the /readyz endpoint.
 	Name string `yaml:"name,omitempty"`
 	// Destination is where the credentials should be written to.
-	Destination destination.Destination `yaml:"destination"`
+	Destination bot.Destination `yaml:"destination"`
 	// Roles is the list of roles to request for the generated credentials.
 	// If empty, it defaults to all the bot's roles.
 	Roles []string `yaml:"roles,omitempty"`
@@ -61,7 +59,7 @@ type KubernetesOutput struct {
 
 	// CredentialLifetime contains configuration for how long credentials will
 	// last and the frequency at which they'll be renewed.
-	CredentialLifetime bot.CredentialLifetime `yaml:",inline"`
+	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // GetName returns the user-given name of the service, used for validation purposes.
@@ -79,7 +77,7 @@ func (o *KubernetesOutput) CheckAndSetDefaults() error {
 	return nil
 }
 
-func (o *KubernetesOutput) GetDestination() destination.Destination {
+func (o *KubernetesOutput) GetDestination() bot.Destination {
 	return o.Destination
 }
 
@@ -87,9 +85,9 @@ func (o *KubernetesOutput) Init(ctx context.Context) error {
 	return trace.Wrap(o.Destination.Init(ctx, []string{}))
 }
 
-func (o *KubernetesOutput) Describe() []bot.FileDescription {
+func (o *KubernetesOutput) Describe() []FileDescription {
 	// Based on tbot.KubernetesOutputService.Render
-	return []bot.FileDescription{
+	return []FileDescription{
 		{
 			Name: "kubeconfig.yaml",
 		},
@@ -108,9 +106,9 @@ func (o *KubernetesOutput) Describe() []bot.FileDescription {
 	}
 }
 
-func (o *KubernetesOutput) MarshalYAML() (any, error) {
+func (o *KubernetesOutput) MarshalYAML() (interface{}, error) {
 	type raw KubernetesOutput
-	return encoding.WithTypeHeader((*raw)(o), KubernetesOutputType)
+	return withTypeHeader((*raw)(o), KubernetesOutputType)
 }
 
 func (o *KubernetesOutput) UnmarshalYAML(node *yaml.Node) error {
@@ -131,6 +129,6 @@ func (o *KubernetesOutput) Type() string {
 	return KubernetesOutputType
 }
 
-func (o *KubernetesOutput) GetCredentialLifetime() bot.CredentialLifetime {
+func (o *KubernetesOutput) GetCredentialLifetime() CredentialLifetime {
 	return o.CredentialLifetime
 }

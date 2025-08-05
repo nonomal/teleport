@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	"github.com/pquerna/otp/totp"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -58,11 +59,12 @@ import (
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func TestTeleportClient_Login_local(t *testing.T) {
 	t.Parallel()
+
+	silenceLogger(t)
 
 	type webauthnFunc func(ctx context.Context, origin string, assertion *wantypes.CredentialAssertion, prompt wancli.LoginPrompt) (*proto.MFAAuthenticateResponse, error)
 
@@ -322,6 +324,8 @@ func TestTeleportClient_Login_local(t *testing.T) {
 }
 
 func TestTeleportClient_DeviceLogin(t *testing.T) {
+	silenceLogger(t)
+
 	clock := clockwork.NewFakeClockAt(time.Now())
 	sa := newStandaloneTeleport(t, clock)
 	username := sa.Username
@@ -517,6 +521,12 @@ type standaloneBundle struct {
 func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundle {
 	randomAddr := utils.NetAddr{AddrNetwork: "tcp", Addr: "127.0.0.1:0"}
 
+	// Silent logger and console.
+	logger := utils.NewLoggerForTests()
+	logger.SetLevel(log.PanicLevel)
+	logger.SetOutput(io.Discard)
+	console := io.Discard
+
 	staticToken := uuid.New().String()
 
 	// Prepare role and user.
@@ -548,7 +558,8 @@ func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundl
 	cfg.DataDir = makeDataDir()
 	cfg.Hostname = "localhost"
 	cfg.Clock = clock
-	cfg.Logger = logtest.NewLogger()
+	cfg.Console = console
+	cfg.Log = logger
 	cfg.SetAuthServerAddress(randomAddr) // must be present
 	cfg.Auth.Preference, err = types.NewAuthPreferenceFromConfigFile(types.AuthPreferenceSpecV2{
 		Type:         constants.Local,
@@ -631,7 +642,8 @@ func newStandaloneTeleport(t *testing.T, clock clockwork.Clock) *standaloneBundl
 	cfg.Hostname = "localhost"
 	cfg.SetToken(staticToken)
 	cfg.Clock = clock
-	cfg.Logger = logtest.NewLogger()
+	cfg.Console = console
+	cfg.Log = logger
 	cfg.SetAuthServerAddress(*authAddr)
 	cfg.Auth.Enabled = false
 	cfg.Proxy.Enabled = true
@@ -669,6 +681,17 @@ func startAndWait(t *testing.T, cfg *servicecfg.Config, eventName string) *servi
 	require.NoError(t, err, "timed out waiting for teleport")
 
 	return instance
+}
+
+// silenceLogger silences logger during testing.
+func silenceLogger(t *testing.T) {
+	lvl := log.GetLevel()
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(lvl)
+	})
+	log.SetOutput(io.Discard)
+	log.SetLevel(log.PanicLevel)
 }
 
 func TestRetryWithRelogin(t *testing.T) {

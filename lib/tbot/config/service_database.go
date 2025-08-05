@@ -26,8 +26,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/internal/encoding"
 )
 
 const DatabaseOutputType = "database"
@@ -81,7 +79,7 @@ type DatabaseOutput struct {
 	// Name of the service for logs and the /readyz endpoint.
 	Name string `yaml:"name,omitempty"`
 	// Destination is where the credentials should be written to.
-	Destination destination.Destination `yaml:"destination"`
+	Destination bot.Destination `yaml:"destination"`
 	// Roles is the list of roles to request for the generated credentials.
 	// If empty, it defaults to all the bot's roles.
 	Roles []string `yaml:"roles,omitempty"`
@@ -102,7 +100,7 @@ type DatabaseOutput struct {
 
 	// CredentialLifetime contains configuration for how long credentials will
 	// last and the frequency at which they'll be renewed.
-	CredentialLifetime bot.CredentialLifetime `yaml:",inline"`
+	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // GetName returns the user-given name of the service, used for validation purposes.
@@ -134,12 +132,12 @@ func (o *DatabaseOutput) CheckAndSetDefaults() error {
 	return nil
 }
 
-func (o *DatabaseOutput) GetDestination() destination.Destination {
+func (o *DatabaseOutput) GetDestination() bot.Destination {
 	return o.Destination
 }
 
-func (o *DatabaseOutput) Describe() []bot.FileDescription {
-	fds := []bot.FileDescription{
+func (o *DatabaseOutput) Describe() []FileDescription {
+	fds := []FileDescription{
 		{
 			Name: IdentityFilePath,
 		},
@@ -155,7 +153,7 @@ func (o *DatabaseOutput) Describe() []bot.FileDescription {
 	}
 	switch o.Format {
 	case MongoDatabaseFormat:
-		fds = append(fds, []bot.FileDescription{
+		fds = append(fds, []FileDescription{
 			{
 				Name: DefaultMongoPrefix + ".crt",
 			},
@@ -164,14 +162,14 @@ func (o *DatabaseOutput) Describe() []bot.FileDescription {
 			},
 		}...)
 	case CockroachDatabaseFormat:
-		fds = append(fds, []bot.FileDescription{
+		fds = append(fds, []FileDescription{
 			{
 				Name:  DefaultCockroachDirName,
 				IsDir: true,
 			},
 		}...)
 	case TLSDatabaseFormat:
-		fds = append(fds, []bot.FileDescription{
+		fds = append(fds, []FileDescription{
 			{
 				Name: DefaultTLSPrefix + ".crt",
 			},
@@ -187,9 +185,9 @@ func (o *DatabaseOutput) Describe() []bot.FileDescription {
 	return fds
 }
 
-func (o *DatabaseOutput) MarshalYAML() (any, error) {
+func (o *DatabaseOutput) MarshalYAML() (interface{}, error) {
 	type raw DatabaseOutput
-	return encoding.WithTypeHeader((*raw)(o), DatabaseOutputType)
+	return withTypeHeader((*raw)(o), DatabaseOutputType)
 }
 
 func (o *DatabaseOutput) UnmarshalYAML(node *yaml.Node) error {
@@ -210,7 +208,7 @@ func (o *DatabaseOutput) Type() string {
 	return DatabaseOutputType
 }
 
-func (o *DatabaseOutput) GetCredentialLifetime() bot.CredentialLifetime {
+func (o *DatabaseOutput) GetCredentialLifetime() CredentialLifetime {
 	return o.CredentialLifetime
 }
 

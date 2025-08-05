@@ -18,7 +18,6 @@ package auth
 
 import (
 	"context"
-	"crypto"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -249,16 +248,6 @@ func (a *Server) SetGHAIDTokenJWKSValidator(validator ghaIDTokenJWKSValidator) {
 	a.ghaIDTokenJWKSValidator = validator
 }
 
-type BoundKeypairValidator = boundKeypairValidator
-
-type CreateBoundKeypairValidator func(subject string, clusterName string, publicKey crypto.PublicKey) (BoundKeypairValidator, error)
-
-func (a *Server) SetCreateBoundKeypairValidator(validator CreateBoundKeypairValidator) {
-	a.createBoundKeypairValidator = func(subject, clusterName string, publicKey crypto.PublicKey) (boundKeypairValidator, error) {
-		return validator(subject, clusterName, publicKey)
-	}
-}
-
 func (a *Server) AuthenticateUserLogin(ctx context.Context, req authclient.AuthenticateUserRequest) (services.UserState, services.AccessChecker, error) {
 	return a.authenticateUserLogin(ctx, req)
 }
@@ -297,10 +286,6 @@ func CreatePresetUsers(ctx context.Context, um PresetUsers) error {
 
 func CreatePresetRoles(ctx context.Context, um PresetRoleManager) error {
 	return createPresetRoles(ctx, um)
-}
-
-func CreatePresetHealthCheckConfig(ctx context.Context, svc services.HealthCheckConfig) error {
-	return createPresetHealthCheckConfig(ctx, svc)
 }
 
 func GetPresetUsers() []types.User {
@@ -380,7 +365,7 @@ func IsAllowedDomain(cn string, domains []string) bool {
 }
 
 func GetSnowflakeJWTParams(ctx context.Context, accountName, userName string, publicKey []byte) (string, string) {
-	return getSnowflakeJWTParams(ctx, accountName, userName, publicKey)
+	return getSnowflakeJWTParams(accountName, userName, publicKey)
 }
 
 func FilterExtensions(ctx context.Context, logger *slog.Logger, extensions []pkix.Extension, oids ...asn1.ObjectIdentifier) []pkix.Extension {
@@ -391,8 +376,8 @@ func PopulateGithubClaims(user *GithubUserResponse, teams []GithubTeamResponse) 
 	return populateGithubClaims(user, teams)
 }
 
-func ValidateGithubAuthCallbackHelper(ctx context.Context, m GitHubManager, diagCtx *SSODiagContext, q url.Values, emitter apievents.Emitter, logger *slog.Logger) (*authclient.GithubAuthResponse, error) {
-	return validateGithubAuthCallbackHelper(ctx, m, diagCtx, q, emitter, logger)
+func ValidateGithubAuthCallbackHelper(ctx context.Context, m GitHubManager, diagCtx *SSODiagContext, q url.Values, emitter apievents.Emitter) (*authclient.GithubAuthResponse, error) {
+	return validateGithubAuthCallbackHelper(ctx, m, diagCtx, q, emitter)
 }
 
 func IsGCPZoneInLocation(rawLocation, rawZone string) bool {

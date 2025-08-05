@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/config"
 )
 
@@ -54,7 +53,7 @@ func TestKubernetesCommand(t *testing.T) {
 				require.Equal(t, "demo", k8s.KubernetesCluster)
 				require.True(t, k8s.DisableExecPlugin)
 
-				dir, ok := k8s.Destination.(*destination.Directory)
+				dir, ok := k8s.Destination.(*config.DestinationDirectory)
 				require.True(t, ok)
 				require.Equal(t, "/bar", dir.Path)
 			},

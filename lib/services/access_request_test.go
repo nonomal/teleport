@@ -142,7 +142,7 @@ func (m *mockGetter) ListResources(ctx context.Context, req proto.ListResourcesR
 	return resp, nil
 }
 
-func (m *mockGetter) GetClusterName(_ context.Context) (types.ClusterName, error) {
+func (m *mockGetter) GetClusterName(opts ...MarshalOption) (types.ClusterName, error) {
 	return types.NewClusterName(types.ClusterNameSpecV2{
 		ClusterName: m.clusterName,
 		ClusterID:   "testid",
@@ -417,7 +417,7 @@ func TestReviewThresholds(t *testing.T) {
 				{ // adds second denial but request was already approved.
 					author:  g.user(t, "proletariat", "intelligentsia", "military"),
 					propose: deny,
-					errCheck: func(tt require.TestingT, err error, i ...any) {
+					errCheck: func(tt require.TestingT, err error, i ...interface{}) {
 						require.ErrorIs(tt, err, trace.AccessDenied("the access request has been already approved"), i...)
 					},
 				},
@@ -439,7 +439,7 @@ func TestReviewThresholds(t *testing.T) {
 				{ // tries to approve but it was already denied
 					author:  g.user(t, "military"),
 					propose: approve,
-					errCheck: func(tt require.TestingT, err error, i ...any) {
+					errCheck: func(tt require.TestingT, err error, i ...interface{}) {
 						require.ErrorIs(tt, err, trace.AccessDenied("the access request has been already denied"), i...)
 					},
 				},
@@ -691,7 +691,7 @@ func TestReviewThresholds(t *testing.T) {
 					author:          g.user(t, "military"),
 					propose:         approve,
 					assumeStartTime: clock.Now().UTC().Add(10000 * time.Hour),
-					errCheck: func(tt require.TestingT, err error, i ...any) {
+					errCheck: func(tt require.TestingT, err error, i ...interface{}) {
 						require.ErrorContains(tt, err, "assume start time must be prior to access expiry time", i...)
 					},
 				},
@@ -1703,7 +1703,7 @@ func TestGetRequestableRoles(t *testing.T) {
 		clusterName: clusterName,
 	}
 
-	for i := range 10 {
+	for i := 0; i < 10; i++ {
 		node, err := types.NewServerWithLabels(
 			fmt.Sprintf("node-%d", i),
 			types.KindNode,
@@ -2478,7 +2478,7 @@ type mockClusterGetter struct {
 	remoteClusters map[string]types.RemoteCluster
 }
 
-func (mcg mockClusterGetter) GetClusterName(_ context.Context) (types.ClusterName, error) {
+func (mcg mockClusterGetter) GetClusterName(opts ...MarshalOption) (types.ClusterName, error) {
 	return mcg.localCluster, nil
 }
 
@@ -2554,7 +2554,7 @@ func TestValidateResourceRequestSizeLimits(t *testing.T) {
 	require.Equal(t, "/someCluster/node/resource2", types.ResourceIDToString(req.GetRequestedResourceIDs()[1]))
 
 	var requestedResourceIDs []types.ResourceID
-	for i := range 200 {
+	for i := 0; i < 200; i++ {
 		requestedResourceIDs = append(requestedResourceIDs, types.ResourceID{
 			ClusterName: "someCluster",
 			Kind:        "node",
@@ -2948,7 +2948,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 					"*": {"*"},
 				},
 				KubernetesResources: []types.KubernetesResource{
-					{Kind: "namespace", Namespace: "*", Name: "*", Verbs: []string{"*"}},
+					{Kind: types.KindNamespace, Namespace: "*", Name: "*", Verbs: []string{"*"}},
 				},
 			},
 		},
@@ -2958,7 +2958,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 					"*": {"*"},
 				},
 				KubernetesResources: []types.KubernetesResource{
-					{Kind: "pod", Namespace: "*", Name: "*", Verbs: []string{"*"}},
+					{Kind: types.KindKubePod, Namespace: "*", Name: "*", Verbs: []string{"*"}},
 				},
 			},
 		},
@@ -2968,7 +2968,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 					"*": {"*"},
 				},
 				KubernetesResources: []types.KubernetesResource{
-					{Kind: "deployment", Namespace: "*", Name: "*", Verbs: []string{"*"}},
+					{Kind: types.KindKubeDeployment, Namespace: "*", Name: "*", Verbs: []string{"*"}},
 				},
 			},
 		},
@@ -2991,7 +2991,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 			Allow: types.RoleConditions{
 				Request: &types.AccessRequestConditions{
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "pod"},
+						{Kind: types.KindKubePod},
 					},
 				},
 			},
@@ -3001,7 +3001,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-namespace", "db-access-wildcard"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "namespace"},
+						{Kind: types.KindKubeNamespace},
 					},
 				},
 			},
@@ -3012,7 +3012,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-wildcard", "db-access-wildcard"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "*"},
+						{Kind: types.Wildcard},
 					},
 				},
 			},
@@ -3023,7 +3023,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-wildcard"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "secret"},
+						{Kind: types.KindKubeSecret},
 					},
 				},
 			},
@@ -3033,7 +3033,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-pod"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "pod"},
+						{Kind: types.KindKubePod},
 					},
 				},
 			},
@@ -3043,7 +3043,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-deployment"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "deployment"},
+						{Kind: types.KindKubeDeployment},
 					},
 				},
 			},
@@ -3053,8 +3053,8 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-deployment", "kube-access-pod"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "deployment"},
-						{Kind: "pod"},
+						{Kind: types.KindKubeDeployment},
+						{Kind: types.KindKubePod},
 					},
 				},
 			},
@@ -3064,7 +3064,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"db-access-wildcard", "kube-no-access"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "namespace"},
+						{Kind: types.KindNamespace},
 					},
 				},
 			},
@@ -3074,14 +3074,14 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-namespace"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "namespace"},
+						{Kind: types.KindNamespace},
 					},
 				},
 			},
 			Deny: types.RoleConditions{
 				Request: &types.AccessRequestConditions{
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "secret"},
+						{Kind: types.KindKubeSecret},
 					},
 				},
 			},
@@ -3095,8 +3095,8 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 			Deny: types.RoleConditions{
 				Request: &types.AccessRequestConditions{
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "deployment"},
-						{Kind: "pod"},
+						{Kind: types.KindKubeDeployment},
+						{Kind: types.KindKubePod},
 					},
 				},
 			},
@@ -3106,14 +3106,14 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 				Request: &types.AccessRequestConditions{
 					SearchAsRoles: []string{"kube-access-namespace"},
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "*"},
+						{Kind: types.Wildcard},
 					},
 				},
 			},
 			Deny: types.RoleConditions{
 				Request: &types.AccessRequestConditions{
 					KubernetesResources: []types.RequestKubernetesResource{
-						{Kind: "*"},
+						{Kind: types.Wildcard},
 					},
 				},
 			},
@@ -3121,7 +3121,7 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 	}
 	roles := make(map[string]types.Role)
 	for name, spec := range roleDesc {
-		role, err := types.NewRoleWithVersion(name, types.V7, spec)
+		role, err := types.NewRole(name, spec)
 		require.NoError(t, err)
 		roles[name] = role
 	}
@@ -3341,24 +3341,22 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 			wantInvalidRequestKindErr: true,
 		},
 		{
-			desc:                 "deny namespace request when deny is not matched",
+			desc:                 "allow namespace request when deny is not matched",
 			userStaticRoles:      []string{"request-namespace_search-namespace_deny-secret"},
 			expectedRequestRoles: []string{"kube-access-namespace"},
 			requestResourceIDs: []types.ResourceID{
 				{Kind: types.KindKubeNamespace, ClusterName: myClusterName, Name: "kube", SubResourceName: "namespace"},
 				{Kind: types.KindKubeNamespace, ClusterName: myClusterName, Name: "kube", SubResourceName: "namespace2"},
 			},
-			wantInvalidRequestKindErr: true,
 		},
 		{
-			desc:                 "deny namespace request when deny is not matched with leaf clusters",
+			desc:                 "allow namespace request when deny is not matched with leaf clusters",
 			userStaticRoles:      []string{"request-namespace_search-namespace_deny-secret"},
 			expectedRequestRoles: []string{"kube-access-namespace"},
 			requestResourceIDs: []types.ResourceID{
 				{Kind: types.KindKubeNamespace, ClusterName: "leaf-cluster", Name: "kube", SubResourceName: "namespace"},
 				{Kind: types.KindKubeNamespace, ClusterName: "leaf-cluster", Name: "kube", SubResourceName: "namespace2"},
 			},
-			wantInvalidRequestKindErr: true,
 		},
 		{
 			desc:                 "allow a list of different request.kubernetes_resources from same role",
@@ -3378,22 +3376,13 @@ func TestValidate_WithAllowRequestKubernetesResources(t *testing.T) {
 			wantInvalidRequestKindErr: true,
 		},
 		{
-			desc:                 "deny wildcard request when deny is not matched - ns",
+			desc:                 "allow wildcard request when deny is not matched",
 			userStaticRoles:      []string{"request-undefined_search-wildcard_deny-deployment-pod"},
 			expectedRequestRoles: []string{"kube-access-wildcard"},
 			requestResourceIDs: []types.ResourceID{
 				{Kind: types.KindKubeNamespace, ClusterName: myClusterName, Name: "kube", SubResourceName: "namespace"},
-			},
-			wantInvalidRequestKindErr: true,
-		},
-		{
-			desc:                 "deny wildcard request when deny is not matched - cluster",
-			userStaticRoles:      []string{"request-undefined_search-wildcard_deny-deployment-pod"},
-			expectedRequestRoles: []string{"kube-access-wildcard"},
-			requestResourceIDs: []types.ResourceID{
 				{Kind: types.KindKubernetesCluster, ClusterName: myClusterName, Name: "kube"},
 			},
-			wantInvalidRequestKindErr: true,
 		},
 		{
 			desc:            "deny wildcard request when deny is matched",

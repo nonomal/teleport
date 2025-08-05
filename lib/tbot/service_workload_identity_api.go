@@ -46,8 +46,7 @@ import (
 	apiclient "github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/observability/metrics"
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/client"
+	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/readyz"
 	"github.com/gravitational/teleport/lib/tbot/workloadidentity"
@@ -55,48 +54,6 @@ import (
 	"github.com/gravitational/teleport/lib/tbot/workloadidentity/workloadattest"
 	"github.com/gravitational/teleport/lib/uds"
 )
-
-func WorkloadIdentityAPIServiceBuilder(
-	botCfg *config.BotConfig,
-	cfg *config.WorkloadIdentityAPIService,
-	trustBundleCache TrustBundleGetter,
-	crlCache CRLGetter,
-) bot.ServiceBuilder {
-	return func(deps bot.ServiceDependencies) (bot.Service, error) {
-		clientCredential := &config.UnstableClientCredentialOutput{}
-		svcIdentity := &ClientCredentialOutputService{
-			botAuthClient:      deps.Client,
-			botIdentityReadyCh: deps.BotIdentityReadyCh,
-			botCfg:             botCfg,
-			cfg:                clientCredential,
-			reloadCh:           deps.ReloadCh,
-			identityGenerator:  deps.IdentityGenerator,
-		}
-		svcIdentity.log = deps.Logger.With(
-			teleport.ComponentKey,
-			teleport.Component(teleport.ComponentTBot, "svc", svcIdentity.String()),
-		)
-
-		svc := &WorkloadIdentityAPIService{
-			svcIdentity:      clientCredential,
-			botCfg:           botCfg,
-			cfg:              cfg,
-			trustBundleCache: trustBundleCache,
-			crlCache:         crlCache,
-			clientBuilder:    deps.ClientBuilder,
-		}
-		svc.log = deps.Logger.With(
-			teleport.ComponentKey, teleport.Component(teleport.ComponentTBot, "svc", svc.String()),
-		)
-		svc.statusReporter = deps.StatusRegistry.AddService(svc.String())
-
-		return bot.NewServicePair(svc, svcIdentity), nil
-	}
-}
-
-type CRLGetter interface {
-	GetCRLSet(ctx context.Context) (*workloadidentity.CRLSet, error)
-}
 
 // WorkloadIdentityAPIService implements a gRPC server that fulfills the SPIFFE
 // Workload API specification. It provides X509 SVIDs and trust bundles to
@@ -114,10 +71,10 @@ type WorkloadIdentityAPIService struct {
 	botCfg           *config.BotConfig
 	cfg              *config.WorkloadIdentityAPIService
 	log              *slog.Logger
+	resolver         reversetunnelclient.Resolver
+	trustBundleCache *workloadidentity.TrustBundleCache
+	crlCache         *workloadidentity.CRLCache
 	statusReporter   readyz.Reporter
-	trustBundleCache TrustBundleGetter
-	crlCache         CRLGetter
-	clientBuilder    *client.Builder
 
 	// client holds the impersonated client for the service
 	client           *apiclient.Client
@@ -144,7 +101,9 @@ func (s *WorkloadIdentityAPIService) setup(ctx context.Context) (err error) {
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	client, err := s.clientBuilder.Build(ctx, facade)
+	client, err := clientForFacade(
+		ctx, s.log, s.botCfg, facade, s.resolver,
+	)
 	if err != nil {
 		return trace.Wrap(err)
 	}

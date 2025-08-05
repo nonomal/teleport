@@ -26,7 +26,6 @@ import (
 )
 
 func TestResourceStore(t *testing.T) {
-	t.Parallel()
 	store := newStore(
 		"int",
 		func(i int) int { return i },
@@ -35,7 +34,7 @@ func TestResourceStore(t *testing.T) {
 			"characters": func(i int) string { return strconv.FormatUint(uint64(i), 16) },
 		})
 
-	for i := range 100 {
+	for i := 0; i < 100; i++ {
 		require.NoError(t, store.put(i))
 	}
 	require.Equal(t, 100, store.len())
@@ -47,6 +46,7 @@ func TestResourceStore(t *testing.T) {
 	n, err := store.get("numbers", "1000")
 	require.ErrorIs(t, err, &trace.NotFoundError{Message: `"int" "1000" does not exist`})
 	require.Equal(t, 0, n)
+	require.Equal(t, 2, store.count("numbers", "1", "100"))
 
 	v, err := store.get("characters", "1c")
 	require.NoError(t, err)
@@ -68,4 +68,5 @@ func TestResourceStore(t *testing.T) {
 	require.ErrorIs(t, err, &trace.NotFoundError{Message: `"int" "0" does not exist`})
 
 	require.Zero(t, store.len())
+	require.Zero(t, store.count("numbers", "1", "100"))
 }

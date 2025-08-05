@@ -26,38 +26,16 @@ import (
 
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport"
 	apiclient "github.com/gravitational/teleport/api/client"
+	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/client/identityfile"
+	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/client"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/identity"
-	"github.com/gravitational/teleport/lib/tbot/internal"
 	"github.com/gravitational/teleport/lib/tbot/readyz"
 )
-
-func DatabaseOutputServiceBuider(botCfg *config.BotConfig, cfg *config.DatabaseOutput) bot.ServiceBuilder {
-	return func(deps bot.ServiceDependencies) (bot.Service, error) {
-		svc := &DatabaseOutputService{
-			botAuthClient:      deps.Client,
-			botIdentityReadyCh: deps.BotIdentityReadyCh,
-			botCfg:             botCfg,
-			cfg:                cfg,
-			reloadCh:           deps.ReloadCh,
-			identityGenerator:  deps.IdentityGenerator,
-			clientBuilder:      deps.ClientBuilder,
-		}
-		svc.log = deps.Logger.With(
-			teleport.ComponentKey,
-			teleport.Component(teleport.ComponentTBot, "svc", svc.String()),
-		)
-		svc.statusReporter = deps.StatusRegistry.AddService(svc.String())
-		return svc, nil
-	}
-}
 
 // DatabaseOutputService generates the artifacts necessary to connect to a
 // database using Teleport.
@@ -66,11 +44,11 @@ type DatabaseOutputService struct {
 	botIdentityReadyCh <-chan struct{}
 	botCfg             *config.BotConfig
 	cfg                *config.DatabaseOutput
+	getBotIdentity     getBotIdentityFn
 	log                *slog.Logger
+	reloadBroadcaster  *channelBroadcaster
+	resolver           reversetunnelclient.Resolver
 	statusReporter     readyz.Reporter
-	reloadCh           <-chan struct{}
-	identityGenerator  *identity.Generator
-	clientBuilder      *client.Builder
 }
 
 func (s *DatabaseOutputService) String() string {
@@ -85,16 +63,19 @@ func (s *DatabaseOutputService) OneShot(ctx context.Context) error {
 }
 
 func (s *DatabaseOutputService) Run(ctx context.Context) error {
-	err := internal.RunOnInterval(ctx, internal.RunOnIntervalConfig{
-		Service:         s.String(),
-		Name:            "output-renewal",
-		F:               s.generate,
-		Interval:        cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
-		RetryLimit:      internal.RenewalRetryLimit,
-		Log:             s.log,
-		ReloadCh:        s.reloadCh,
-		IdentityReadyCh: s.botIdentityReadyCh,
-		StatusReporter:  s.statusReporter,
+	reloadCh, unsubscribe := s.reloadBroadcaster.subscribe()
+	defer unsubscribe()
+
+	err := runOnInterval(ctx, runOnIntervalConfig{
+		service:         s.String(),
+		name:            "output-renewal",
+		f:               s.generate,
+		interval:        cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		retryLimit:      renewalRetryLimit,
+		log:             s.log,
+		reloadCh:        reloadCh,
+		identityReadyCh: s.botIdentityReadyCh,
+		statusReporter:  s.statusReporter,
 	})
 	return trace.Wrap(err)
 }
@@ -119,19 +100,30 @@ func (s *DatabaseOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err, "verifying destination")
 	}
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
-	identityOpts := []identity.GenerateOption{
-		identity.WithRoles(s.cfg.Roles),
-		identity.WithLifetime(effectiveLifetime.TTL, effectiveLifetime.RenewalInterval),
-		identity.WithLogger(s.log),
+	var err error
+	roles := s.cfg.Roles
+	if len(roles) == 0 {
+		roles, err = fetchDefaultRoles(ctx, s.botAuthClient, s.getBotIdentity())
+		if err != nil {
+			return trace.Wrap(err, "fetching default roles")
+		}
 	}
-	id, err := s.identityGenerator.GenerateFacade(ctx, identityOpts...)
+
+	id, err := generateIdentity(
+		ctx,
+		s.botAuthClient,
+		s.getBotIdentity(),
+		roles,
+		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		nil,
+	)
 	if err != nil {
 		return trace.Wrap(err, "generating identity")
 	}
 	// create a client that uses the impersonated identity, so that when we
 	// fetch information, we can ensure access rights are enforced.
-	impersonatedClient, err := s.clientBuilder.Build(ctx, id)
+	facade := identity.NewFacade(s.botCfg.FIPS, s.botCfg.Insecure, id)
+	impersonatedClient, err := clientForFacade(ctx, s.log, s.botCfg, facade, s.resolver)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -149,13 +141,22 @@ func (s *DatabaseOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	routedIdentity, err := s.identityGenerator.Generate(ctx, append(identityOpts,
-		identity.WithCurrentIdentityFacade(id),
-		identity.WithRouteToDatabase(route),
-	)...)
+	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
+	routedIdentity, err := generateIdentity(
+		ctx,
+		s.botAuthClient,
+		id,
+		roles,
+		effectiveLifetime.TTL,
+		func(req *proto.UserCertsRequest) {
+			req.RouteToDatabase = route
+		},
+	)
 	if err != nil {
 		return trace.Wrap(err)
 	}
+
+	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	s.log.InfoContext(
 		ctx,
@@ -193,16 +194,16 @@ func (s *DatabaseOutputService) render(
 	)
 	defer span.End()
 
-	keyRing, err := internal.NewClientKeyRing(routedIdentity, hostCAs)
+	keyRing, err := NewClientKeyRing(routedIdentity, hostCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := internal.WriteTLSCAs(ctx, s.cfg.Destination, hostCAs, userCAs, databaseCAs); err != nil {
+	if err := writeTLSCAs(ctx, s.cfg.Destination, hostCAs, userCAs, databaseCAs); err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := internal.WriteIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
+	if err := writeIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
 		return trace.Wrap(err, "writing identity file")
 	}
 	if err := identity.SaveIdentity(
@@ -225,7 +226,7 @@ func (s *DatabaseOutputService) render(
 			return trace.Wrap(err, "writing cockroach database files")
 		}
 	case config.TLSDatabaseFormat:
-		if err := internal.WriteIdentityFileTLS(
+		if err := writeIdentityFileTLS(
 			ctx, s.log, keyRing, s.cfg.Destination,
 		); err != nil {
 			return trace.Wrap(err, "writing tls database format files")
@@ -240,7 +241,7 @@ func writeCockroachDatabaseFiles(
 	log *slog.Logger,
 	routedIdentity *identity.Identity,
 	databaseCAs []types.CertAuthority,
-	dest destination.Destination,
+	dest bot.Destination,
 ) error {
 	ctx, span := tracer.Start(
 		ctx,
@@ -249,14 +250,14 @@ func writeCockroachDatabaseFiles(
 	defer span.End()
 
 	// Cockroach format specifically uses database CAs rather than hostCAs
-	keyRing, err := internal.NewClientKeyRing(routedIdentity, databaseCAs)
+	keyRing, err := NewClientKeyRing(routedIdentity, databaseCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
 	cfg := identityfile.WriteConfig{
 		OutputPath: config.DefaultCockroachDirName,
-		Writer:     internal.NewBotConfigWriter(ctx, dest, config.DefaultCockroachDirName),
+		Writer:     newBotConfigWriter(ctx, dest, config.DefaultCockroachDirName),
 		KeyRing:    keyRing,
 		Format:     identityfile.FormatCockroach,
 
@@ -278,7 +279,7 @@ func writeMongoDatabaseFiles(
 	log *slog.Logger,
 	routedIdentity *identity.Identity,
 	databaseCAs []types.CertAuthority,
-	dest destination.Destination,
+	dest bot.Destination,
 ) error {
 	ctx, span := tracer.Start(
 		ctx,
@@ -287,14 +288,14 @@ func writeMongoDatabaseFiles(
 	defer span.End()
 
 	// Mongo format specifically uses database CAs rather than hostCAs
-	keyRing, err := internal.NewClientKeyRing(routedIdentity, databaseCAs)
+	keyRing, err := NewClientKeyRing(routedIdentity, databaseCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
 	cfg := identityfile.WriteConfig{
 		OutputPath: config.DefaultMongoPrefix,
-		Writer:     internal.NewBotConfigWriter(ctx, dest, ""),
+		Writer:     newBotConfigWriter(ctx, dest, ""),
 		KeyRing:    keyRing,
 		Format:     identityfile.FormatMongo,
 		// Always overwrite to avoid hitting our no-op Stat() and Remove() functions.

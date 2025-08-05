@@ -86,7 +86,6 @@ func (c *Session) GetAccessState(authPref readonly.AuthPreference) services.Acce
 	state.MFAVerified = c.Identity.IsMFAVerified()
 	state.EnableDeviceVerification = true
 	state.DeviceVerified = dtauthz.IsTLSDeviceVerified(&c.Identity.DeviceExtensions)
-	state.IsBot = c.Identity.IsBot()
 	return state
 }
 

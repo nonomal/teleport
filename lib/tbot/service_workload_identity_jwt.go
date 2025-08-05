@@ -26,40 +26,15 @@ import (
 
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport"
 	apiclient "github.com/gravitational/teleport/api/client"
 	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
 	"github.com/gravitational/teleport/api/utils/retryutils"
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/client"
+	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/identity"
 	"github.com/gravitational/teleport/lib/tbot/readyz"
 	"github.com/gravitational/teleport/lib/tbot/workloadidentity"
 )
-
-func WorkloadIdentityJWTServiceBuilder(
-	botCfg *config.BotConfig,
-	cfg *config.WorkloadIdentityJWTService,
-	trustBundleCache TrustBundleGetter,
-) bot.ServiceBuilder {
-	return func(deps bot.ServiceDependencies) (bot.Service, error) {
-		svc := &WorkloadIdentityJWTService{
-			botAuthClient:     deps.Client,
-			botCfg:            botCfg,
-			cfg:               cfg,
-			getBotIdentity:    deps.BotIdentity,
-			identityGenerator: deps.IdentityGenerator,
-			clientBuilder:     deps.ClientBuilder,
-		}
-		svc.log = deps.Logger.With(
-			teleport.ComponentKey,
-			teleport.Component(teleport.ComponentTBot, "svc", svc.String()),
-		)
-		svc.statusReporter = deps.StatusRegistry.AddService(svc.String())
-		return svc, nil
-	}
-}
 
 // WorkloadIdentityJWTService is a service that retrieves JWT workload identity
 // credentials for WorkloadIdentity resources.
@@ -69,12 +44,11 @@ type WorkloadIdentityJWTService struct {
 	cfg            *config.WorkloadIdentityJWTService
 	getBotIdentity getBotIdentityFn
 	log            *slog.Logger
+	resolver       reversetunnelclient.Resolver
 	statusReporter readyz.Reporter
 	// trustBundleCache is the cache of trust bundles. It only needs to be
 	// provided when running in daemon mode.
-	trustBundleCache  TrustBundleGetter
-	identityGenerator *identity.Generator
-	clientBuilder     *client.Builder
+	trustBundleCache *workloadidentity.TrustBundleCache
 }
 
 // String returns a human-readable description of the service.
@@ -101,6 +75,10 @@ func (s *WorkloadIdentityJWTService) Run(ctx context.Context) error {
 	bundleSet, err := s.trustBundleCache.GetBundleSet(ctx)
 	if err != nil {
 		return trace.Wrap(err, "getting trust bundle set")
+	}
+
+	if s.statusReporter == nil {
+		s.statusReporter = readyz.NoopReporter()
 	}
 
 	jitter := retryutils.DefaultJitter
@@ -178,22 +156,32 @@ func (s *WorkloadIdentityJWTService) requestJWTSVID(
 	)
 	defer span.End()
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
-	id, err := s.identityGenerator.GenerateFacade(ctx,
-		identity.WithLifetime(effectiveLifetime.TTL, effectiveLifetime.RenewalInterval),
-		identity.WithLogger(s.log),
+	roles, err := fetchDefaultRoles(ctx, s.botAuthClient, s.getBotIdentity())
+	if err != nil {
+		return nil, trace.Wrap(err, "fetching roles")
+	}
+
+	id, err := generateIdentity(
+		ctx,
+		s.botAuthClient,
+		s.getBotIdentity(),
+		roles,
+		cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+		nil,
 	)
 	if err != nil {
 		return nil, trace.Wrap(err, "generating identity")
 	}
 	// create a client that uses the impersonated identity, so that when we
 	// fetch information, we can ensure access rights are enforced.
-	impersonatedClient, err := s.clientBuilder.Build(ctx, id)
+	facade := identity.NewFacade(s.botCfg.FIPS, s.botCfg.Insecure, id)
+	impersonatedClient, err := clientForFacade(ctx, s.log, s.botCfg, facade, s.resolver)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	defer impersonatedClient.Close()
 
+	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
 	credentials, err := workloadidentity.IssueJWTWorkloadIdentity(
 		ctx,
 		s.log,
@@ -206,6 +194,8 @@ func (s *WorkloadIdentityJWTService) requestJWTSVID(
 	if err != nil {
 		return nil, trace.Wrap(err, "generating JWT SVID")
 	}
+
+	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	var credential *workloadidentityv1pb.Credential
 	switch len(credentials) {

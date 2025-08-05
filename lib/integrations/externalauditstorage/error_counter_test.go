@@ -37,7 +37,8 @@ import (
 
 func TestErrorCounter(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	testError := errors.New("test error")
 	badError := errors.New(strings.Repeat("bad test error\r\n", 1000))
@@ -50,7 +51,7 @@ func TestErrorCounter(t *testing.T) {
 		expectAlerts []alert
 	}{
 		{
-			desc: "recording upload errors alert",
+			desc: "upload errors alert",
 			steps: []testStep{
 				{
 					action: func(pack *testPack) {
@@ -67,46 +68,12 @@ func TestErrorCounter(t *testing.T) {
 			}},
 		},
 		{
-			desc: "recording download errors alert",
+			desc: "download errors alert",
 			steps: []testStep{
 				{
 					action: func(pack *testPack) {
 						pack.errHandler.Download(ctx, "", nil)
 						pack.successHandler.Download(ctx, "", nil)
-					},
-					repeat: 10,
-				},
-			},
-			err: testError,
-			expectAlerts: []alert{{
-				name:    sessionDownloadFailureClusterAlert,
-				message: fmt.Sprintf(sessionDownloadFailureClusterAlertMsgTemplate, testError),
-			}},
-		},
-		{
-			desc: "summary upload errors alert",
-			steps: []testStep{
-				{
-					action: func(pack *testPack) {
-						pack.errHandler.UploadSummary(ctx, "", nil)
-						pack.successHandler.UploadSummary(ctx, "", nil)
-					},
-					repeat: 10,
-				},
-			},
-			err: testError,
-			expectAlerts: []alert{{
-				name:    sessionUploadFailureClusterAlert,
-				message: fmt.Sprintf(sessionUploadFailureClusterAlertMsgTemplate, testError),
-			}},
-		},
-		{
-			desc: "summary download errors alert",
-			steps: []testStep{
-				{
-					action: func(pack *testPack) {
-						pack.errHandler.DownloadSummary(ctx, "", nil)
-						pack.successHandler.DownloadSummary(ctx, "", nil)
 					},
 					repeat: 10,
 				},
@@ -216,6 +183,7 @@ func TestErrorCounter(t *testing.T) {
 			}},
 		},
 	} {
+		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
 			alertService := newFakeAlertService()
@@ -308,14 +276,6 @@ func (h *errorHandler) Upload(ctx context.Context, sessionID session.ID, reader 
 	return "", h.err
 }
 
-func (h *errorHandler) UploadSummary(ctx context.Context, sessionID session.ID, reader io.Reader) (string, error) {
-	return "", h.err
-}
-
-func (h *errorHandler) Download(ctx context.Context, sessionID session.ID, writer events.RandomAccessWriter) error {
-	return h.err
-}
-
-func (h *errorHandler) DownloadSummary(ctx context.Context, sessionID session.ID, writer events.RandomAccessWriter) error {
+func (h *errorHandler) Download(ctx context.Context, sessionID session.ID, writer io.WriterAt) error {
 	return h.err
 }

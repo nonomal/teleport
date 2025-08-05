@@ -28,8 +28,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/internal/encoding"
 )
 
 const SPIFFESVIDOutputType = "spiffe-svid"
@@ -122,16 +120,16 @@ type SPIFFESVIDOutput struct {
 	// Name of the service for logs and the /readyz endpoint.
 	Name string `yaml:"name,omitempty"`
 	// Destination is where the credentials should be written to.
-	Destination                  destination.Destination `yaml:"destination"`
-	SVID                         SVIDRequest             `yaml:"svid"`
-	IncludeFederatedTrustBundles bool                    `yaml:"include_federated_trust_bundles,omitempty"`
+	Destination                  bot.Destination `yaml:"destination"`
+	SVID                         SVIDRequest     `yaml:"svid"`
+	IncludeFederatedTrustBundles bool            `yaml:"include_federated_trust_bundles,omitempty"`
 	// JWTs is an optional list of audiences and file names to write JWT SVIDs
 	// to.
 	JWTs []JWTSVID `yaml:"jwts,omitempty"`
 
 	// CredentialLifetime contains configuration for how long credentials will
 	// last and the frequency at which they'll be renewed.
-	CredentialLifetime bot.CredentialLifetime `yaml:",inline"`
+	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // GetName returns the user-given name of the service, used for validation purposes.
@@ -145,7 +143,7 @@ func (o *SPIFFESVIDOutput) Init(ctx context.Context) error {
 }
 
 // GetDestination returns the destination.
-func (o *SPIFFESVIDOutput) GetDestination() destination.Destination {
+func (o *SPIFFESVIDOutput) GetDestination() bot.Destination {
 	return o.Destination
 }
 
@@ -166,8 +164,8 @@ func (o *SPIFFESVIDOutput) CheckAndSetDefaults() error {
 }
 
 // Describe returns the file descriptions for the SPIFFE SVID output.
-func (o *SPIFFESVIDOutput) Describe() []bot.FileDescription {
-	fds := []bot.FileDescription{
+func (o *SPIFFESVIDOutput) Describe() []FileDescription {
+	fds := []FileDescription{
 		{
 			Name: SVIDPEMPath,
 		},
@@ -179,7 +177,7 @@ func (o *SPIFFESVIDOutput) Describe() []bot.FileDescription {
 		},
 	}
 	for _, jwt := range o.JWTs {
-		fds = append(fds, bot.FileDescription{Name: jwt.FileName})
+		fds = append(fds, FileDescription{Name: jwt.FileName})
 	}
 	return nil
 }
@@ -189,9 +187,9 @@ func (o *SPIFFESVIDOutput) Type() string {
 }
 
 // MarshalYAML marshals the SPIFFESVIDOutput into YAML.
-func (o *SPIFFESVIDOutput) MarshalYAML() (any, error) {
+func (o *SPIFFESVIDOutput) MarshalYAML() (interface{}, error) {
 	type raw SPIFFESVIDOutput
-	return encoding.WithTypeHeader((*raw)(o), SPIFFESVIDOutputType)
+	return withTypeHeader((*raw)(o), SPIFFESVIDOutputType)
 }
 
 // UnmarshalYAML unmarshals the SPIFFESVIDOutput from YAML.
@@ -209,6 +207,6 @@ func (o *SPIFFESVIDOutput) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func (o *SPIFFESVIDOutput) GetCredentialLifetime() bot.CredentialLifetime {
+func (o *SPIFFESVIDOutput) GetCredentialLifetime() CredentialLifetime {
 	return o.CredentialLifetime
 }

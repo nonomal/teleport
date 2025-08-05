@@ -36,7 +36,6 @@ import { SecondaryOutlined } from 'design/Label/Label';
 import Text from 'design/Text';
 import { HoverTooltip } from 'design/Tooltip/HoverTooltip';
 import { InfoGuideButton } from 'shared/components/SlidingSidePanel/InfoGuide/InfoGuide';
-import { traitsPreset } from 'shared/components/TraitsEditor/TraitsEditor';
 import { CopyButton } from 'shared/components/UnifiedResources/shared/CopyButton';
 
 import {
@@ -46,6 +45,7 @@ import {
 } from 'teleport/components/Layout/Layout';
 import cfg from 'teleport/config';
 import { isAdminActionRequiresMfaError } from 'teleport/services/api/api';
+import { traitsPreset } from 'teleport/Users/UserAddEdit/TraitsEditor';
 import useTeleport from 'teleport/useTeleport';
 
 import { EditDialog } from '../Edit/EditDialog';

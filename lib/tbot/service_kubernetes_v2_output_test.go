@@ -35,12 +35,10 @@ import (
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/identity"
-	"github.com/gravitational/teleport/lib/tbot/internal"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/testutils/golden"
 )
 
@@ -150,7 +148,7 @@ func TestKubernetesV2OutputService_fetch(t *testing.T) {
 					Name: "nonexistent",
 				},
 			},
-			expectError: func(tt require.TestingT, err error, i ...any) {
+			expectError: func(tt require.TestingT, err error, i ...interface{}) {
 				require.ErrorContains(t, err, "unable to fetch cluster \"nonexistent\" by name")
 			},
 		},
@@ -254,7 +252,7 @@ func TestKubernetesV2OutputService_render(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 
-			dest := &destination.Directory{
+			dest := &config.DestinationDirectory{
 				Path:     dir,
 				Symlinks: botfs.SymlinksInsecure,
 				ACLs:     botfs.ACLOff,
@@ -273,10 +271,10 @@ func TestKubernetesV2OutputService_render(t *testing.T) {
 					Destination:       dest,
 				},
 				executablePath: fakeGetExecutablePath,
-				log:            logtest.NewLogger(),
+				log:            utils.NewSlogLoggerForTests(),
 			}
 
-			keyRing, err := internal.NewClientKeyRing(
+			keyRing, err := NewClientKeyRing(
 				id,
 				[]types.CertAuthority{fakeCA(t, types.HostCA, mockClusterName)},
 			)

@@ -142,7 +142,14 @@ export function BotInstances() {
     [history]
   );
 
-  const sortType = useMemo(() => parseSortType(sort), [sort]);
+  const sortType = useMemo<SortType>(
+    () =>
+      parseSortType(sort) ?? {
+        fieldName: 'active_at_latest',
+        dir: 'DESC',
+      },
+    [sort]
+  );
 
   const handleSortChanged = useCallback(
     (sortType: SortType) => {
@@ -276,6 +283,6 @@ const InfoGuideReferenceLinks = {
   },
 };
 
-const isUnsupportedSortError = (error: Error) => {
+const isUnsupportedSortError = (error: Error | null) => {
   return error?.message && error.message.includes('unsupported sort');
 };

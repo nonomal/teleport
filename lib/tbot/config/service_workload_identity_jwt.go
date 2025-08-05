@@ -23,8 +23,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/internal/encoding"
 )
 
 const WorkloadIdentityJWTOutputType = "workload-identity-jwt"
@@ -40,15 +38,15 @@ type WorkloadIdentityJWTService struct {
 	Name string `yaml:"name,omitempty"`
 	// Selector is the selector for the WorkloadIdentity resource that will be
 	// used to issue WICs.
-	Selector bot.WorkloadIdentitySelector `yaml:"selector"`
+	Selector WorkloadIdentitySelector `yaml:"selector"`
 	// Destination is where the credentials should be written to.
-	Destination destination.Destination `yaml:"destination"`
+	Destination bot.Destination `yaml:"destination"`
 	// Audiences is the list of audiences that the JWT should be valid for.
 	Audiences []string
 
 	// CredentialLifetime contains configuration for how long credentials will
 	// last and the frequency at which they'll be renewed.
-	CredentialLifetime bot.CredentialLifetime `yaml:",inline"`
+	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // GetName returns the user-given name of the service, used for validation purposes.
@@ -79,8 +77,8 @@ func (o *WorkloadIdentityJWTService) CheckAndSetDefaults() error {
 const JWTSVIDPath = "jwt_svid"
 
 // Describe returns the file descriptions for the WorkloadIdentityJWTService.
-func (o *WorkloadIdentityJWTService) Describe() []bot.FileDescription {
-	fds := []bot.FileDescription{
+func (o *WorkloadIdentityJWTService) Describe() []FileDescription {
+	fds := []FileDescription{
 		{
 			Name: JWTSVIDPath,
 		},
@@ -93,9 +91,9 @@ func (o *WorkloadIdentityJWTService) Type() string {
 }
 
 // MarshalYAML marshals the WorkloadIdentityJWTService into YAML.
-func (o *WorkloadIdentityJWTService) MarshalYAML() (any, error) {
+func (o *WorkloadIdentityJWTService) MarshalYAML() (interface{}, error) {
 	type raw WorkloadIdentityJWTService
-	return encoding.WithTypeHeader((*raw)(o), WorkloadIdentityJWTOutputType)
+	return withTypeHeader((*raw)(o), WorkloadIdentityJWTOutputType)
 }
 
 // UnmarshalYAML unmarshals the WorkloadIdentityJWTService from YAML.
@@ -114,12 +112,12 @@ func (o *WorkloadIdentityJWTService) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // GetDestination returns the destination.
-func (o *WorkloadIdentityJWTService) GetDestination() destination.Destination {
+func (o *WorkloadIdentityJWTService) GetDestination() bot.Destination {
 	return o.Destination
 }
 
-func (o *WorkloadIdentityJWTService) GetCredentialLifetime() bot.CredentialLifetime {
+func (o *WorkloadIdentityJWTService) GetCredentialLifetime() CredentialLifetime {
 	lt := o.CredentialLifetime
-	lt.SkipMaxTTLValidation = true
+	lt.skipMaxTTLValidation = true
 	return lt
 }

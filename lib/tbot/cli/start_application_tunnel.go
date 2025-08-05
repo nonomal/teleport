@@ -26,7 +26,6 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/lib/tbot/config"
-	"github.com/gravitational/teleport/lib/tbot/services/application"
 )
 
 // ApplicationTunnelCommand implements `tbot start application-tunnel` and
@@ -61,7 +60,7 @@ func (c *ApplicationTunnelCommand) ApplyConfig(cfg *config.BotConfig, l *slog.Lo
 		return trace.Wrap(err)
 	}
 
-	cfg.Services = append(cfg.Services, &application.TunnelConfig{
+	cfg.Services = append(cfg.Services, &config.ApplicationTunnelService{
 		Listen:  c.Listen,
 		AppName: c.AppName,
 	})

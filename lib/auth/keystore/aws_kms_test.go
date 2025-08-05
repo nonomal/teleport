@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
 	"slices"
@@ -113,7 +112,7 @@ func TestAWSKMS_DeleteUnusedKeys(t *testing.T) {
 			}
 
 			totalKeys := pageSize * 3
-			for range totalKeys {
+			for i := 0; i < totalKeys; i++ {
 				_, err := keyStore.NewSSHKeyPair(ctx, cryptosuites.UserCASSH)
 				require.NoError(t, err, trace.DebugReport(err))
 			}
@@ -356,7 +355,6 @@ func newFakeAWSKMSService(t *testing.T, clock clockwork.Clock, account string, r
 type fakeAWSKMSKey struct {
 	arn          arn.ARN
 	privKeyPEM   []byte
-	keyUsage     kmstypes.KeyUsageType
 	tags         []kmstypes.Tag
 	creationDate time.Time
 	state        kmstypes.KeyState
@@ -395,8 +393,6 @@ func (f *fakeAWSKMSService) CreateKey(_ context.Context, input *kms.CreateKeyInp
 	switch input.KeySpec {
 	case kmstypes.KeySpecRsa2048:
 		privKeyPEM = testRSA2048PrivateKeyPEM
-	case kmstypes.KeySpecRsa4096:
-		privKeyPEM = testRSA4096PrivateKeyPEM
 	case kmstypes.KeySpecEccNistP256:
 		signer, err := cryptosuites.GenerateKeyWithAlgorithm(cryptosuites.ECDSAP256)
 		if err != nil {
@@ -412,7 +408,6 @@ func (f *fakeAWSKMSService) CreateKey(_ context.Context, input *kms.CreateKeyInp
 	f.keys = append(f.keys, &fakeAWSKMSKey{
 		arn:          a,
 		privKeyPEM:   privKeyPEM,
-		keyUsage:     input.KeyUsage,
 		tags:         input.Tags,
 		creationDate: f.clock.Now(),
 		region:       f.region,
@@ -455,9 +450,6 @@ func (f *fakeAWSKMSService) Sign(_ context.Context, input *kms.SignInput, _ ...f
 	if key.state != kmstypes.KeyStateEnabled {
 		return nil, trace.NotFound("key %q is not enabled", aws.ToString(input.KeyId))
 	}
-	if key.keyUsage != kmstypes.KeyUsageTypeSignVerify {
-		return nil, trace.BadParameter("key %q is not a signing key", aws.ToString(input.KeyId))
-	}
 	signer, err := keys.ParsePrivateKey(key.privKeyPEM)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -477,39 +469,6 @@ func (f *fakeAWSKMSService) Sign(_ context.Context, input *kms.SignInput, _ ...f
 	}
 	return &kms.SignOutput{
 		Signature: signature,
-	}, nil
-}
-
-func (f *fakeAWSKMSService) Decrypt(_ context.Context, input *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
-	key, err := f.findKey(aws.ToString(input.KeyId))
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	if key.state != kmstypes.KeyStateEnabled {
-		return nil, trace.NotFound("key %q is not enabled", aws.ToString(input.KeyId))
-	}
-	if key.keyUsage != kmstypes.KeyUsageTypeEncryptDecrypt {
-		return nil, trace.BadParameter("key %q is not a decryption key", aws.ToString(input.KeyId))
-	}
-	signer, err := keys.ParsePrivateKey(key.privKeyPEM)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	decrypter, ok := signer.Signer.(crypto.Decrypter)
-	if !ok {
-		return nil, trace.Errorf("private key is not a decrypter")
-	}
-	switch input.EncryptionAlgorithm {
-	case kmstypes.EncryptionAlgorithmSpecRsaesOaepSha256:
-	default:
-		return nil, trace.BadParameter("unsupported EncryptionAlgorithm %q", input.EncryptionAlgorithm)
-	}
-	plaintext, err := decrypter.Decrypt(rand.Reader, input.CiphertextBlob, &rsa.OAEPOptions{Hash: crypto.SHA256})
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	return &kms.DecryptOutput{
-		Plaintext: plaintext,
 	}, nil
 }
 

@@ -33,12 +33,10 @@ import (
 	"github.com/gravitational/teleport/api/client/webclient"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/fixtures"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/ssh"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/testutils/golden"
 )
 
@@ -114,7 +112,7 @@ type mockALPNConnTester struct {
 	isALPNUpgradeRequired bool
 }
 
-func (p *mockALPNConnTester) IsUpgradeRequired(ctx context.Context, addr string, insecure bool) (bool, error) {
+func (p *mockALPNConnTester) isUpgradeRequired(ctx context.Context, addr string, insecure bool) (bool, error) {
 	return p.isALPNUpgradeRequired, nil
 }
 
@@ -151,7 +149,7 @@ func Test_renderSSHConfig(t *testing.T) {
 			dir := t.TempDir()
 
 			// identity is passed in, but not used.
-			dest := &destination.Directory{
+			dest := &config.DestinationDirectory{
 				Path:     dir,
 				Symlinks: botfs.SymlinksInsecure,
 				ACLs:     botfs.ACLOff,
@@ -159,8 +157,8 @@ func Test_renderSSHConfig(t *testing.T) {
 
 			err := renderSSHConfig(
 				context.Background(),
-				logtest.NewLogger(),
-				&connection.ProxyPong{
+				utils.NewSlogLoggerForTests(),
+				&proxyPingResponse{
 					PingResponse: &webclient.PingResponse{
 						ClusterName: mockClusterName,
 						Proxy: webclient.ProxySettings{

@@ -145,8 +145,8 @@ func TestContextLockTargets(t *testing.T) {
 		{
 			role: types.RoleNode,
 			want: []types.LockTarget{
-				{ServerID: "node"},
-				{ServerID: "node.cluster"},
+				{Node: "node", ServerID: "node"},
+				{Node: "node.cluster", ServerID: "node.cluster"},
 				{User: "node.cluster"},
 				{Role: "role1"},
 				{Role: "role2"},
@@ -391,9 +391,6 @@ func TestAuthorizer_Authorize_deviceTrust(t *testing.T) {
 		AssetTag:     "assettag1",
 		CredentialID: "credentialid1",
 	}
-	botUser := userWithoutExtensions
-	botUser.Identity.BotName = "wall-e"
-	botUser.Identity.BotInstanceID = uuid.NewString()
 
 	// Enterprise is necessary for mode=optional and mode=required to work.
 	modulestest.SetTestModules(t, modulestest.Modules{
@@ -418,17 +415,6 @@ func TestAuthorizer_Authorize_deviceTrust(t *testing.T) {
 			deviceMode: constants.DeviceTrustModeRequired,
 			user:       userWithoutExtensions,
 			wantErr:    "access denied",
-		},
-		{
-			name:       "nok: bot user and mode=required",
-			deviceMode: constants.DeviceTrustModeRequired,
-			user:       botUser,
-			wantErr:    "access denied",
-		},
-		{
-			name:       "ok: bot user and mode=required-for-humans",
-			deviceMode: constants.DeviceTrustModeRequiredForHumans,
-			user:       botUser,
 		},
 		{
 			name:       "global mode disabled only",
@@ -885,22 +871,9 @@ func TestContext_GetAccessState(t *testing.T) {
 				DeviceVerified:           true,  // Identity extensions
 			},
 		},
-		{
-			name: "bot user",
-			createAuthCtx: func() *authz.Context {
-				ctx := localCtx
-				localUser := ctx.Identity.(authz.LocalUser)
-				localUser.Identity.BotName = "wall-e"
-				ctx.Identity = localUser
-				return &ctx
-			},
-			want: services.AccessState{
-				EnableDeviceVerification: true,
-				IsBot:                    true,
-			},
-		},
 	}
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
 			// Prepare AuthPreference.
 			spec := test.authSpec

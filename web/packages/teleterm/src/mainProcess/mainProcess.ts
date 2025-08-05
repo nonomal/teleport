@@ -48,7 +48,6 @@ import {
   TSH_AUTOUPDATE_ENV_VAR,
   TSH_AUTOUPDATE_OFF,
 } from 'teleterm/node/tshAutoupdate';
-import { AppUpdater, AppUpdaterStorage } from 'teleterm/services/appUpdater';
 import { subscribeToFileStorageEvents } from 'teleterm/services/fileStorage';
 import * as grpcCreds from 'teleterm/services/grpcCredentials';
 import {
@@ -56,12 +55,7 @@ import {
   KeepLastChunks,
   LoggerColor,
 } from 'teleterm/services/logger';
-import {
-  AutoUpdateClient,
-  createAutoUpdateClient,
-  createTshdClient,
-  TshdClient,
-} from 'teleterm/services/tshd';
+import { createTshdClient, TshdClient } from 'teleterm/services/tshd';
 import { loggingInterceptor } from 'teleterm/services/tshd/interceptors';
 import { staticConfig } from 'teleterm/staticConfig';
 import { FileStorage, RuntimeSettings } from 'teleterm/types';
@@ -117,11 +111,7 @@ export default class MainProcess {
     )
   );
   private readonly agentRunner: AgentRunner;
-  private tshdClients: Promise<{
-    terminalService: TshdClient;
-    autoUpdateService: AutoUpdateClient;
-  }>;
-  private readonly appUpdater: AppUpdater;
+  private tshdClient: Promise<TshdClient>;
 
   private constructor(opts: Options) {
     this.settings = opts.settings;
@@ -145,24 +135,6 @@ export default class MainProcess {
         );
       }
     );
-
-    const getClusterVersions = async () => {
-      const { autoUpdateService } = await this.getTshdClients();
-      const { response } = await autoUpdateService.getClusterVersions({});
-      return response;
-    };
-    const getDownloadBaseUrl = async () => {
-      const { autoUpdateService } = await this.getTshdClients();
-      const {
-        response: { baseUrl },
-      } = await autoUpdateService.getDownloadBaseUrl({});
-      return baseUrl;
-    };
-    this.appUpdater = new AppUpdater(
-      makeAppUpdaterStorage(this.appStateFileStorage),
-      getClusterVersions,
-      getDownloadBaseUrl
-    );
   }
 
   /**
@@ -180,7 +152,6 @@ export default class MainProcess {
 
   async dispose(): Promise<void> {
     this.windowsManager.dispose();
-    this.appUpdater.dispose();
     await Promise.all([
       // sending usage events on tshd shutdown has 10-seconds timeout
       terminateWithTimeout(this.tshdProcess, 10_000, () => {
@@ -204,21 +175,18 @@ export default class MainProcess {
     this.initIpc();
   }
 
-  async getTshdClients(): Promise<{
-    terminalService: TshdClient;
-    autoUpdateService: AutoUpdateClient;
-  }> {
-    if (!this.tshdClients) {
-      this.tshdClients = this.resolvedChildProcessAddresses.then(
+  async getTshdClient(): Promise<TshdClient> {
+    if (!this.tshdClient) {
+      this.tshdClient = this.resolvedChildProcessAddresses.then(
         ({ tsh: tshdAddress }) =>
-          setUpTshdClients({
+          setUpTshdClient({
             runtimeSettings: this.settings,
             tshdAddress,
           })
       );
     }
 
-    return this.tshdClients;
+    return this.tshdClient;
   }
 
   private initTshd() {
@@ -628,8 +596,8 @@ export default class MainProcess {
         }
 
         const [dirPath] = value.filePaths;
-        const { terminalService } = await this.getTshdClients();
-        await terminalService.setSharedDirectoryForDesktopSession({
+        const tshClient = await this.getTshdClient();
+        await tshClient.setSharedDirectoryForDesktopSession({
           desktopUri: args.desktopUri,
           login: args.login,
           path: dirPath,
@@ -798,28 +766,22 @@ function sharePromise<T>(promiseFn: () => Promise<T>): () => Promise<T> {
 }
 
 /**
- * Sets up the gRPC clients for tsh daemon used in the main process.
+ * Sets up the gRPC client for tsh daemon used in the main process.
  */
-async function setUpTshdClients({
+async function setUpTshdClient({
   runtimeSettings,
   tshdAddress,
 }: {
   runtimeSettings: RuntimeSettings;
   tshdAddress: string;
-}): Promise<{
-  terminalService: TshdClient;
-  autoUpdateService: AutoUpdateClient;
-}> {
+}): Promise<TshdClient> {
   const creds = await createGrpcCredentials(runtimeSettings);
   const transport = new GrpcTransport({
     host: tshdAddress,
     channelCredentials: creds,
     interceptors: [loggingInterceptor(new Logger('tshd'))],
   });
-  return {
-    terminalService: createTshdClient(transport),
-    autoUpdateService: createAutoUpdateClient(transport),
-  };
+  return createTshdClient(transport);
 }
 
 async function createGrpcCredentials(
@@ -879,19 +841,5 @@ function rewrapResolveError(
       `Could not communicate with ${processName}.\n\n` +
         `Last logs from ${logPath}:\n${lastLogs}`
     );
-  };
-}
-
-const APP_UPDATER_STATE_KEY = 'appUpdater';
-function makeAppUpdaterStorage(fs: FileStorage): AppUpdaterStorage {
-  return {
-    get: () => {
-      const state = fs.get(APP_UPDATER_STATE_KEY) as object;
-      return { managingClusterUri: '', ...state };
-    },
-    put: value => {
-      const state = fs.get(APP_UPDATER_STATE_KEY) as object;
-      fs.put(APP_UPDATER_STATE_KEY, { ...state, ...value });
-    },
   };
 }

@@ -48,7 +48,6 @@ import (
 	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func Test_transport_rewriteRedirect(t *testing.T) {
@@ -240,7 +239,7 @@ func TestTransport_DialContextNoServersAvailable(t *testing.T) {
 				&types.AppServerV3{Spec: types.AppServerSpecV3{App: &types.AppV3{}}},
 				&types.AppServerV3{Spec: types.AppServerSpecV3{App: &types.AppV3{}}},
 			},
-			log: logtest.NewLogger(),
+			log: utils.NewLoggerForTests(),
 		},
 	}
 
@@ -253,7 +252,7 @@ func TestTransport_DialContextNoServersAvailable(t *testing.T) {
 	count := len(tp.c.servers) + 1
 	resC := make(chan dialRes, count)
 
-	for range count {
+	for i := 0; i < count; i++ {
 		go func() {
 			conn, err := tp.DialContext(ctx, "", "")
 			resC <- dialRes{
@@ -263,7 +262,7 @@ func TestTransport_DialContextNoServersAvailable(t *testing.T) {
 		}()
 	}
 
-	for range count {
+	for i := 0; i < count; i++ {
 		res := <-resC
 		require.Error(t, res.err)
 		require.Nil(t, res.conn)

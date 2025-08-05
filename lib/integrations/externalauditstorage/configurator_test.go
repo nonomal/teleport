@@ -25,11 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -179,7 +180,9 @@ func TestConfiguratorIsUsed(t *testing.T) {
 }
 
 func TestCredentialsCache(t *testing.T) {
-	ctx := t.Context()
+	logrus.SetLevel(logrus.DebugLevel)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	modulestest.SetTestModules(t, modulestest.Modules{
 		TestFeatures: modules.Features{
@@ -335,7 +338,8 @@ func TestCredentialsCache(t *testing.T) {
 // configurator to synchronously get credentials for the current draft
 // ExternalAuditStorageSpec.
 func TestDraftConfigurator(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	modulestest.SetTestModules(t, modulestest.Modules{
 		TestFeatures: modules.Features{

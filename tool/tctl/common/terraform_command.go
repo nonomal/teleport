@@ -44,10 +44,6 @@ import (
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
 	"github.com/gravitational/teleport/lib/tbot"
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/bot/onboarding"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/identity"
 	"github.com/gravitational/teleport/lib/tbot/ssh"
@@ -305,13 +301,13 @@ func (c *TerraformCommand) useBotToObtainIdentity(ctx context.Context, addr util
 	credential := &config.UnstableClientCredentialOutput{}
 	cfg := &config.BotConfig{
 		Version: "",
-		Onboarding: onboarding.Config{
+		Onboarding: config.OnboardingConfig{
 			TokenValue: token,
 			JoinMethod: types.JoinMethodToken,
 		},
-		Storage:            &config.StorageConfig{Destination: &destination.Memory{}},
+		Storage:            &config.StorageConfig{Destination: &config.DestinationMemory{}},
 		Services:           config.ServiceConfigs{credential},
-		CredentialLifetime: bot.CredentialLifetime{TTL: c.botTTL},
+		CredentialLifetime: config.CredentialLifetime{TTL: c.botTTL},
 		Oneshot:            true,
 		// If --insecure is passed, the bot will trust the certificate on first use.
 		// This does not truly disable TLS validation, only trusts the certificate on first connection.
@@ -321,7 +317,7 @@ func (c *TerraformCommand) useBotToObtainIdentity(ctx context.Context, addr util
 	// When setting AuthServerAddressMode to ProxyAllowed, tbot will try both joining as an auth and as a proxy.
 	// This allows us to not care about how the user connects to Teleport (auth vs proxy joining).
 	cfg.AuthServer = addr.String()
-	cfg.AuthServerAddressMode = connection.AllowProxyAsAuthServer
+	cfg.AuthServerAddressMode = config.AllowProxyAsAuthServer
 
 	// Insecure joining is not compatible with CA pinning
 	if !cfg.Insecure {
@@ -359,7 +355,7 @@ func (c *TerraformCommand) useBotToObtainIdentity(ctx context.Context, addr util
 
 	id := facade.Get()
 
-	clusterName, err := clt.GetClusterName(ctx)
+	clusterName, err := clt.GetClusterName()
 	if err != nil {
 		return nil, nil, trace.Wrap(err, "retrieving cluster name")
 	}

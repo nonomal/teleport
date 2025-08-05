@@ -74,7 +74,7 @@ func (process *TeleportProcess) initAWSOIDCDeployServiceUpdater(channels automat
 		return trace.Wrap(err)
 	}
 
-	clusterNameConfig, err := authClient.GetClusterName(process.GracefulExitContext())
+	clusterNameConfig, err := authClient.GetClusterName()
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -219,7 +219,7 @@ func (updater *AWSOIDCDeployServiceUpdater) updateAWSOIDCDeployServices(ctx cont
 	// for AWS OIDC deploy services to update. In order to reduce the number of api
 	// calls, the aws regions are first reduced to only the regions containing
 	// an RDS database.
-	awsRegions := make(map[string]any)
+	awsRegions := make(map[string]interface{})
 	for _, database := range databases {
 		if database.IsAWSHosted() && database.IsRDS() {
 			awsRegions[database.GetAWS().Region] = nil
@@ -325,7 +325,7 @@ func (updater *AWSOIDCDeployServiceUpdater) updateAWSOIDCDeployService(ctx conte
 			// for the integration.
 			updater.Log.DebugContext(ctx, "Integration does not manage any services in given region", "integration", integration.GetName(), "region", awsRegion)
 			return nil
-		case trace.IsAccessDenied(awslib.ConvertIAMError(trace.Unwrap(err))):
+		case trace.IsAccessDenied(awslib.ConvertIAMv2Error(trace.Unwrap(err))):
 			// The AWS OIDC role may lack permissions due to changes in teleport.
 			// In this situation users should be notified that they will need to
 			// re-run the deploy service iam configuration script and update the

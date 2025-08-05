@@ -18,6 +18,8 @@ package cache
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/gravitational/trace"
@@ -25,9 +27,9 @@ import (
 	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
 	identitycenterv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/identitycenter/v1"
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/api/utils/clientutils"
-	"github.com/gravitational/teleport/lib/itertools/stream"
 	"github.com/gravitational/teleport/lib/services"
+	logutils "github.com/gravitational/teleport/lib/utils/log"
+	"github.com/gravitational/teleport/lib/utils/pagination"
 )
 
 func newIdentityCenterAccount(id string) *identitycenterv1.Account {
@@ -46,27 +48,50 @@ func newIdentityCenterAccount(id string) *identitycenterv1.Account {
 	}
 }
 
-// TestIdentityCenterAccount asserts that an Identity Center Account can be cached
+// TestIdentityCenterAccount asserts that an Identoty Ceneter Account can be cached
 func TestIdentityCenterAccount(t *testing.T) {
+	slog.SetDefault(
+		slog.New(logutils.NewSlogTextHandler(
+			os.Stderr, logutils.SlogTextHandlerConfig{Level: slog.LevelDebug})))
+
 	t.Parallel()
 
 	fixturePack := newTestPack(t, ForAuth)
 	t.Cleanup(fixturePack.Close)
 
-	testResources153(t, fixturePack, testFuncs153[*identitycenterv1.Account]{
-		newResource: func(s string) (*identitycenterv1.Account, error) {
-			return newIdentityCenterAccount(s), nil
+	collect := func(ctx context.Context, src identityCenterAccountGetter) ([]services.IdentityCenterAccount, error) {
+		var result []services.IdentityCenterAccount
+		var pageToken pagination.PageRequestToken
+		for {
+			page, nextPage, err := src.ListIdentityCenterAccounts(ctx, 0, &pageToken)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			result = append(result, page...)
+
+			if nextPage == pagination.EndOfList {
+				break
+			}
+
+			pageToken.Update(nextPage)
+		}
+		return result, nil
+	}
+
+	testResources153(t, fixturePack, testFuncs153[services.IdentityCenterAccount]{
+		newResource: func(s string) (services.IdentityCenterAccount, error) {
+			return services.IdentityCenterAccount{Account: newIdentityCenterAccount(s)}, nil
 		},
-		create: func(ctx context.Context, item *identitycenterv1.Account) error {
-			_, err := fixturePack.identityCenter.CreateIdentityCenterAccount2(ctx, item)
+		create: func(ctx context.Context, item services.IdentityCenterAccount) error {
+			_, err := fixturePack.identityCenter.CreateIdentityCenterAccount(ctx, item)
 			return trace.Wrap(err)
 		},
-		update: func(ctx context.Context, item *identitycenterv1.Account) error {
-			_, err := fixturePack.identityCenter.UpdateIdentityCenterAccount2(ctx, item)
+		update: func(ctx context.Context, item services.IdentityCenterAccount) error {
+			_, err := fixturePack.identityCenter.UpdateIdentityCenterAccount(ctx, item)
 			return trace.Wrap(err)
 		},
-		list: func(ctx context.Context) ([]*identitycenterv1.Account, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.identityCenter.ListIdentityCenterAccounts2))
+		list: func(ctx context.Context) ([]services.IdentityCenterAccount, error) {
+			return collect(ctx, fixturePack.identityCenter)
 		},
 		delete: func(ctx context.Context, id string) error {
 			return trace.Wrap(fixturePack.identityCenter.DeleteIdentityCenterAccount(
@@ -75,11 +100,12 @@ func TestIdentityCenterAccount(t *testing.T) {
 		deleteAll: func(ctx context.Context) error {
 			return trace.Wrap(fixturePack.identityCenter.DeleteAllIdentityCenterAccounts(ctx))
 		},
-		cacheList: func(ctx context.Context) ([]*identitycenterv1.Account, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.cache.ListIdentityCenterAccounts2))
+		cacheList: func(ctx context.Context) ([]services.IdentityCenterAccount, error) {
+			return collect(ctx, fixturePack.cache.identityCenterCache)
 		},
-		cacheGet: func(ctx context.Context, id string) (*identitycenterv1.Account, error) {
-			r, err := fixturePack.cache.GetIdentityCenterAccount(ctx, id)
+		cacheGet: func(ctx context.Context, id string) (services.IdentityCenterAccount, error) {
+			r, err := fixturePack.cache.identityCenterCache.GetIdentityCenterAccount(
+				ctx, services.IdentityCenterAccountID(id))
 			return r, trace.Wrap(err)
 		},
 	})
@@ -104,11 +130,29 @@ func newIdentityCenterPrincipalAssignment(id string) *identitycenterv1.Principal
 	}
 }
 
-// TestIdentityCenterPrincipalAssignment asserts that an Identity Center PrincipalAssignment can be cached
+// TestIdentityCenterPrincpialAssignment asserts that an Identity Center PrincipalAssignment can be cached
 func TestIdentityCenterPrincipalAssignment(t *testing.T) {
-	t.Parallel()
 	fixturePack := newTestPack(t, ForAuth)
 	t.Cleanup(fixturePack.Close)
+
+	collect := func(ctx context.Context, src identityCenterPrincipalAssignmentGetter) ([]*identitycenterv1.PrincipalAssignment, error) {
+		var result []*identitycenterv1.PrincipalAssignment
+		var pageToken pagination.PageRequestToken
+		for {
+			page, nextPage, err := src.ListPrincipalAssignments(ctx, 0, &pageToken)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			result = append(result, page...)
+
+			if nextPage == pagination.EndOfList {
+				break
+			}
+
+			pageToken.Update(nextPage)
+		}
+		return result, nil
+	}
 
 	testResources153(t, fixturePack, testFuncs153[*identitycenterv1.PrincipalAssignment]{
 		newResource: func(s string) (*identitycenterv1.PrincipalAssignment, error) {
@@ -123,7 +167,7 @@ func TestIdentityCenterPrincipalAssignment(t *testing.T) {
 			return trace.Wrap(err)
 		},
 		list: func(ctx context.Context) ([]*identitycenterv1.PrincipalAssignment, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.identityCenter.ListPrincipalAssignments2))
+			return collect(ctx, fixturePack.identityCenter)
 		},
 		delete: func(ctx context.Context, id string) error {
 			return trace.Wrap(fixturePack.identityCenter.DeletePrincipalAssignment(ctx, services.PrincipalAssignmentID(id)))
@@ -132,10 +176,11 @@ func TestIdentityCenterPrincipalAssignment(t *testing.T) {
 			return trace.Wrap(fixturePack.identityCenter.DeleteAllPrincipalAssignments(ctx))
 		},
 		cacheList: func(ctx context.Context) ([]*identitycenterv1.PrincipalAssignment, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.cache.ListPrincipalAssignments2))
+			return collect(ctx, fixturePack.cache.identityCenterCache)
 		},
 		cacheGet: func(ctx context.Context, id string) (*identitycenterv1.PrincipalAssignment, error) {
-			r, err := fixturePack.cache.GetPrincipalAssignment(ctx, services.PrincipalAssignmentID(id))
+			r, err := fixturePack.cache.identityCenterCache.GetPrincipalAssignment(
+				ctx, services.PrincipalAssignmentID(id))
 			return r, trace.Wrap(err)
 		},
 	})
@@ -161,24 +206,44 @@ func newIdentityCenterAccountAssignment(id string) *identitycenterv1.AccountAssi
 // TestIdentityCenterAccountAssignment asserts that an Identity Center
 // AccountAssignment can be cached
 func TestIdentityCenterAccountAssignment(t *testing.T) {
-	t.Parallel()
 	fixturePack := newTestPack(t, ForAuth)
 	t.Cleanup(fixturePack.Close)
 
-	testResources153(t, fixturePack, testFuncs153[*identitycenterv1.AccountAssignment]{
-		newResource: func(s string) (*identitycenterv1.AccountAssignment, error) {
-			return newIdentityCenterAccountAssignment(s), nil
+	collect := func(ctx context.Context, src identityCenterAccountAssignmentGetter) ([]services.IdentityCenterAccountAssignment, error) {
+		var result []services.IdentityCenterAccountAssignment
+		var pageToken pagination.PageRequestToken
+		for {
+			page, nextPage, err := src.ListAccountAssignments(ctx, 0, &pageToken)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			result = append(result, page...)
+
+			if nextPage == pagination.EndOfList {
+				break
+			}
+
+			pageToken.Update(nextPage)
+		}
+		return result, nil
+	}
+
+	testResources153(t, fixturePack, testFuncs153[services.IdentityCenterAccountAssignment]{
+		newResource: func(s string) (services.IdentityCenterAccountAssignment, error) {
+			return services.IdentityCenterAccountAssignment{
+				AccountAssignment: newIdentityCenterAccountAssignment(s),
+			}, nil
 		},
-		create: func(ctx context.Context, item *identitycenterv1.AccountAssignment) error {
-			_, err := fixturePack.identityCenter.CreateIdentityCenterAccountAssignment(ctx, item)
+		create: func(ctx context.Context, item services.IdentityCenterAccountAssignment) error {
+			_, err := fixturePack.identityCenter.CreateAccountAssignment(ctx, item)
 			return trace.Wrap(err)
 		},
-		update: func(ctx context.Context, item *identitycenterv1.AccountAssignment) error {
-			_, err := fixturePack.identityCenter.UpdateIdentityCenterAccountAssignment(ctx, item)
+		update: func(ctx context.Context, item services.IdentityCenterAccountAssignment) error {
+			_, err := fixturePack.identityCenter.UpdateAccountAssignment(ctx, item)
 			return trace.Wrap(err)
 		},
-		list: func(ctx context.Context) ([]*identitycenterv1.AccountAssignment, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.identityCenter.ListIdentityCenterAccountAssignments))
+		list: func(ctx context.Context) ([]services.IdentityCenterAccountAssignment, error) {
+			return collect(ctx, fixturePack.identityCenter)
 		},
 		delete: func(ctx context.Context, id string) error {
 			return trace.Wrap(fixturePack.identityCenter.DeleteAccountAssignment(ctx, services.IdentityCenterAccountAssignmentID(id)))
@@ -186,12 +251,13 @@ func TestIdentityCenterAccountAssignment(t *testing.T) {
 		deleteAll: func(ctx context.Context) error {
 			return trace.Wrap(fixturePack.identityCenter.DeleteAllAccountAssignments(ctx))
 		},
-		cacheList: func(ctx context.Context) ([]*identitycenterv1.AccountAssignment, error) {
-			return stream.Collect(clientutils.Resources(ctx, fixturePack.cache.ListIdentityCenterAccountAssignments))
+		cacheList: func(ctx context.Context) ([]services.IdentityCenterAccountAssignment, error) {
+			return collect(ctx, fixturePack.cache.identityCenterCache)
 		},
-		cacheGet: func(ctx context.Context, id string) (*identitycenterv1.AccountAssignment, error) {
-			r, err := fixturePack.cache.GetAccountAssignment(ctx, services.IdentityCenterAccountAssignmentID(id))
-			return r.AccountAssignment, trace.Wrap(err)
+		cacheGet: func(ctx context.Context, id string) (services.IdentityCenterAccountAssignment, error) {
+			r, err := fixturePack.cache.identityCenterCache.GetAccountAssignment(
+				ctx, services.IdentityCenterAccountAssignmentID(id))
+			return r, trace.Wrap(err)
 		},
 	})
 }

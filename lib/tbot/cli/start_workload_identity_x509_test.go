@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/config"
 )
 
@@ -47,7 +46,7 @@ func TestWorkloadIdentityX509Command(t *testing.T) {
 				require.True(t, ok)
 				require.True(t, wis.IncludeFederatedTrustBundles)
 
-				dir, ok := wis.Destination.(*destination.Directory)
+				dir, ok := wis.Destination.(*config.DestinationDirectory)
 				require.True(t, ok)
 				require.Equal(t, "/bar", dir.Path)
 
@@ -77,7 +76,7 @@ func TestWorkloadIdentityX509Command(t *testing.T) {
 				require.True(t, ok)
 				require.True(t, wis.IncludeFederatedTrustBundles)
 
-				dir, ok := wis.Destination.(*destination.Directory)
+				dir, ok := wis.Destination.(*config.DestinationDirectory)
 				require.True(t, ok)
 				require.Equal(t, "/bar", dir.Path)
 

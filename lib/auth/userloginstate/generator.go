@@ -21,11 +21,10 @@ package userloginstate
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"slices"
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport/api/client/proto"
 	accesslistv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/accesslist/v1"
@@ -51,7 +50,7 @@ type AccessListsAndLockGetter interface {
 // GeneratorConfig is the configuration for the user login state generator.
 type GeneratorConfig struct {
 	// Log is a logger to use for the generator.
-	Log *slog.Logger
+	Log *logrus.Entry
 
 	// AccessLists is a service for retrieving access lists and locks from the backend.
 	AccessLists AccessListsAndLockGetter
@@ -109,7 +108,7 @@ func (g *GeneratorConfig) CheckAndSetDefaults() error {
 
 // Generator will generate a user login state from a user.
 type Generator struct {
-	log         *slog.Logger
+	log         *logrus.Entry
 	accessLists AccessListsAndLockGetter
 	access      services.Access
 	usageEvents UsageEventsClient
@@ -135,17 +134,6 @@ func NewGenerator(config GeneratorConfig) (*Generator, error) {
 
 // Generate will generate the user login state for the given user.
 func (g *Generator) Generate(ctx context.Context, user types.User, ulsService services.UserLoginStates) (*userloginstate.UserLoginState, error) {
-	return g.generate(ctx, user, ulsService, false)
-}
-
-// GeneratePureULS is a variant of user login state generation that emits no usage events and ignores any existing user login state
-// in the backend. Used for auditing/introspection purposes.
-func (g *Generator) GeneratePureULS(ctx context.Context, user types.User) (*userloginstate.UserLoginState, error) {
-	return g.generate(ctx, user, nil, true)
-}
-
-// generate is the underlying implementation for Generate and GeneratePure.
-func (g *Generator) generate(ctx context.Context, user types.User, ulsService services.UserLoginStates, pure bool) (*userloginstate.UserLoginState, error) {
 	var originalTraits map[string][]string
 	var traits map[string][]string
 	var githubIdentity *userloginstate.ExternalIdentity
@@ -153,8 +141,8 @@ func (g *Generator) generate(ctx context.Context, user types.User, ulsService se
 		originalTraits = make(map[string][]string, len(user.GetTraits()))
 		traits = make(map[string][]string, len(user.GetTraits()))
 		for k, v := range user.GetTraits() {
-			originalTraits[k] = slices.Clone(v)
-			traits[k] = slices.Clone(v)
+			originalTraits[k] = utils.CopyStrings(v)
+			traits[k] = utils.CopyStrings(v)
 		}
 	}
 
@@ -172,9 +160,9 @@ func (g *Generator) generate(ctx context.Context, user types.User, ulsService se
 			Name:   user.GetName(),
 			Labels: user.GetAllLabels(),
 		}, userloginstate.Spec{
-			OriginalRoles:  slices.Clone(user.GetRoles()),
+			OriginalRoles:  utils.CopyStrings(user.GetRoles()),
 			OriginalTraits: originalTraits,
-			Roles:          slices.Clone(user.GetRoles()),
+			Roles:          utils.CopyStrings(user.GetRoles()),
 			Traits:         traits,
 			UserType:       user.GetUserType(),
 			GitHubIdentity: githubIdentity,
@@ -189,11 +177,11 @@ func (g *Generator) generate(ctx context.Context, user types.User, ulsService se
 		return nil, trace.Wrap(err)
 	}
 
-	if !pure {
-		// Preserve states like GitHub identities across logins.
-		if err := UpdatePreservedAttributes(ctx, uls, ulsService); err != nil {
-			return nil, trace.Wrap(err)
-		}
+	// Preserve states like GitHub identities across logins.
+	// TODO(greedy52) implement a way to remove the identity or find a way to
+	// avoid keeping the identity forever.
+	if err := g.maybePreserveGitHubIdentity(ctx, uls, ulsService); err != nil {
+		return nil, trace.Wrap(err)
 	}
 
 	// Clean up the user login state after generating it.
@@ -201,10 +189,10 @@ func (g *Generator) generate(ctx context.Context, user types.User, ulsService se
 		return nil, trace.Wrap(err)
 	}
 
-	if g.usageEvents != nil && !pure {
+	if g.usageEvents != nil {
 		// Emit the usage event metadata.
 		if err := g.emitUsageEvent(ctx, user, uls, inheritedRoles, inheritedTraits); err != nil {
-			g.log.DebugContext(ctx, "Error emitting usage event during user login state generation, skipping", "error", err)
+			g.log.WithError(err).Debug("Error emitting usage event during user login state generation, skipping")
 		}
 	}
 
@@ -258,7 +246,7 @@ func (g *Generator) handleAccessListMembership(ctx context.Context, user types.U
 	if err != nil || membershipKind == accesslistv1.AccessListUserAssignmentType_ACCESS_LIST_USER_ASSIGNMENT_TYPE_UNSPECIFIED {
 		// Log any error besides user being locked.
 		if err != nil && !accesslists.IsUserLocked(err) {
-			g.log.WarnContext(ctx, "checking access list membership", "error", err)
+			g.log.WithError(err).Warn("checking access list membership")
 		}
 		return inheritedRoles, inheritedTraits, nil
 	}
@@ -303,7 +291,7 @@ func (g *Generator) handleAccessListOwnership(ctx context.Context, user types.Us
 	if err != nil || ownershipType == accesslistv1.AccessListUserAssignmentType_ACCESS_LIST_USER_ASSIGNMENT_TYPE_UNSPECIFIED {
 		// Log any error besides user being locked.
 		if err != nil && !accesslists.IsUserLocked(err) {
-			g.log.WarnContext(ctx, "checking access list ownership", "error", err)
+			g.log.WithError(err).Warn("checking access list ownership")
 		}
 		return inheritedRoles, inheritedTraits, nil
 	}
@@ -431,27 +419,22 @@ func (g *Generator) emitUsageEvent(ctx context.Context, user types.User, state *
 	return nil
 }
 
-// UpdatePreservedAttributes retrieves attributes that can be preserved in user
-// login state cross logins.
-func UpdatePreservedAttributes(ctx context.Context, user services.UserState, ulsService services.UserLoginStates) error {
-	// Use the new/existing GitHubIdentities.
-	// TODO(greedy52) implement a way to remove the identity or find a way to
-	// avoid keeping the identity forever in user login state.
-	if len(user.GetGithubIdentities()) > 0 {
+func (g *Generator) maybePreserveGitHubIdentity(ctx context.Context, uls *userloginstate.UserLoginState, ulsService services.UserLoginStates) error {
+	// Use the new one.
+	if uls.Spec.GitHubIdentity != nil {
 		return nil
 	}
 
 	// Find the old state if exists.
-	old, err := ulsService.GetUserLoginState(ctx, user.GetName())
+	oldUls, err := ulsService.GetUserLoginState(ctx, uls.GetName())
 	if err != nil {
 		if trace.IsNotFound(err) {
 			return nil
 		}
 		return trace.Wrap(err)
 	}
-
-	if githubIdentities := old.GetGithubIdentities(); len(githubIdentities) > 0 {
-		user.SetGithubIdentities(githubIdentities)
+	if oldUls.Spec.GitHubIdentity != nil {
+		uls.Spec.GitHubIdentity = oldUls.Spec.GitHubIdentity
 	}
 	return nil
 }
@@ -516,6 +499,6 @@ func (g *Generator) emitSkippedAccessListEvent(ctx context.Context, accessListNa
 			UserMessage: "access list skipped because it references non-existent role(s)",
 		},
 	}); err != nil {
-		g.log.WarnContext(ctx, "Failed to emit access list skipped warning audit event", "error", err)
+		g.log.WithError(err).Warn("Failed to emit access list skipped warning audit event.")
 	}
 }

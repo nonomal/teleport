@@ -34,9 +34,10 @@ import (
 	"github.com/gravitational/teleport/api/utils/keys"
 	apisshutils "github.com/gravitational/teleport/api/utils/sshutils"
 	"github.com/gravitational/teleport/lib/fixtures"
+	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv"
 	"github.com/gravitational/teleport/lib/sshutils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 func TestSignersWithSHA1Fallback(t *testing.T) {
@@ -136,6 +137,7 @@ func TestSignersWithSHA1Fallback(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -189,6 +191,7 @@ func TestDirectTCPIP(t *testing.T) {
 	cases := []struct {
 		name           string
 		login          string
+		accessChecker  services.AccessChecker
 		expectAccepted bool
 		expectRejected bool
 	}{
@@ -213,11 +216,12 @@ func TestDirectTCPIP(t *testing.T) {
 	}
 
 	for _, tt := range cases {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			s := Server{
-				logger:          logtest.NewLogger(),
+				log:             utils.NewLoggerForTests().WithField(teleport.ComponentKey, "test"),
 				identityContext: srv.IdentityContext{Login: tt.login},
 			}
 
@@ -248,22 +252,22 @@ func TestCheckTCPIPForward(t *testing.T) {
 		},
 	}
 	for _, tt := range cases {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			s := Server{
-				logger:          logtest.NewLogger(),
+				log:             utils.NewLoggerForTests().WithField(teleport.ComponentKey, "test"),
 				identityContext: srv.IdentityContext{Login: tt.login},
 			}
-			err := s.checkTCPIPForwardRequest(context.Background(),
-				&ssh.Request{
-					Type:      teleport.TCPIPForwardRequest,
-					WantReply: false,
-					Payload: ssh.Marshal(sshutils.TCPIPForwardReq{
-						Addr: "localhost",
-						Port: 0,
-					}),
-				})
+			err := s.checkTCPIPForwardRequest(&ssh.Request{
+				Type:      teleport.TCPIPForwardRequest,
+				WantReply: false,
+				Payload: ssh.Marshal(sshutils.TCPIPForwardReq{
+					Addr: "localhost",
+					Port: 0,
+				}),
+			})
 			tt.assert(t, err)
 		})
 	}

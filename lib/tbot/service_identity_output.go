@@ -29,48 +29,19 @@ import (
 
 	"github.com/gravitational/trace"
 
-	"github.com/gravitational/teleport"
 	apiclient "github.com/gravitational/teleport/api/client"
+	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	autoupdate "github.com/gravitational/teleport/lib/autoupdate/agent"
 	"github.com/gravitational/teleport/lib/config/openssh"
+	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/client"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/identity"
-	"github.com/gravitational/teleport/lib/tbot/internal"
 	"github.com/gravitational/teleport/lib/tbot/readyz"
 	"github.com/gravitational/teleport/lib/tbot/ssh"
 	"github.com/gravitational/teleport/lib/utils"
 )
-
-func IdentityOutputServiceBuilder(
-	botCfg *config.BotConfig,
-	cfg *config.IdentityOutput,
-	alpnUpgradeCache *internal.ALPNUpgradeCache,
-) bot.ServiceBuilder {
-	return func(deps bot.ServiceDependencies) (bot.Service, error) {
-		svc := &IdentityOutputService{
-			botAuthClient:      deps.Client,
-			botIdentityReadyCh: deps.BotIdentityReadyCh,
-			botCfg:             botCfg,
-			cfg:                cfg,
-			reloadCh:           deps.ReloadCh,
-			executablePath:     autoupdate.StableExecutable,
-			alpnUpgradeCache:   alpnUpgradeCache,
-			proxyPinger:        deps.ProxyPinger,
-			identityGenerator:  deps.IdentityGenerator,
-			clientBuilder:      deps.ClientBuilder,
-		}
-		svc.log = deps.Logger.With(
-			teleport.ComponentKey, teleport.Component(teleport.ComponentTBot, "svc", svc.String()),
-		)
-		svc.statusReporter = deps.StatusRegistry.AddService(svc.String())
-		return svc, nil
-	}
-}
 
 // IdentityOutputService produces credentials which can be used to connect to
 // Teleport's API or SSH.
@@ -82,16 +53,16 @@ type IdentityOutputService struct {
 	botIdentityReadyCh <-chan struct{}
 	botCfg             *config.BotConfig
 	cfg                *config.IdentityOutput
+	getBotIdentity     getBotIdentityFn
 	log                *slog.Logger
-	proxyPinger        connection.ProxyPinger
+	proxyPingCache     *proxyPingCache
+	reloadBroadcaster  *channelBroadcaster
+	resolver           reversetunnelclient.Resolver
 	statusReporter     readyz.Reporter
-	reloadCh           <-chan struct{}
 	// executablePath is called to get the path to the tbot executable.
 	// Usually this is os.Executable
-	executablePath    func() (string, error)
-	alpnUpgradeCache  *internal.ALPNUpgradeCache
-	identityGenerator *identity.Generator
-	clientBuilder     *client.Builder
+	executablePath   func() (string, error)
+	alpnUpgradeCache *alpnProxyConnUpgradeRequiredCache
 }
 
 func (s *IdentityOutputService) String() string {
@@ -106,16 +77,19 @@ func (s *IdentityOutputService) OneShot(ctx context.Context) error {
 }
 
 func (s *IdentityOutputService) Run(ctx context.Context) error {
-	err := internal.RunOnInterval(ctx, internal.RunOnIntervalConfig{
-		Service:         s.String(),
-		Name:            "output-renewal",
-		F:               s.generate,
-		Interval:        cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
-		RetryLimit:      internal.RenewalRetryLimit,
-		Log:             s.log,
-		ReloadCh:        s.reloadCh,
-		IdentityReadyCh: s.botIdentityReadyCh,
-		StatusReporter:  s.statusReporter,
+	reloadCh, unsubscribe := s.reloadBroadcaster.subscribe()
+	defer unsubscribe()
+
+	err := runOnInterval(ctx, runOnIntervalConfig{
+		service:         s.String(),
+		name:            "output-renewal",
+		f:               s.generate,
+		interval:        cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).RenewalInterval,
+		retryLimit:      renewalRetryLimit,
+		log:             s.log,
+		reloadCh:        reloadCh,
+		identityReadyCh: s.botIdentityReadyCh,
+		statusReporter:  s.statusReporter,
 	})
 	return trace.Wrap(err)
 }
@@ -140,34 +114,56 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err, "verifying destination")
 	}
 
-	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
-	identityOpts := []identity.GenerateOption{
-		identity.WithRoles(s.cfg.Roles),
-		identity.WithLifetime(effectiveLifetime.TTL, effectiveLifetime.RenewalInterval),
-		identity.WithReissuableRoleImpersonation(s.cfg.AllowReissue),
-		identity.WithLogger(s.log),
+	var err error
+	roles := s.cfg.Roles
+	if len(roles) == 0 {
+		roles, err = fetchDefaultRoles(ctx, s.botAuthClient, s.getBotIdentity())
+		if err != nil {
+			return trace.Wrap(err, "fetching default roles")
+		}
 	}
-	id, err := s.identityGenerator.GenerateFacade(ctx, identityOpts...)
+
+	effectiveLifetime := cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime)
+	id, err := generateIdentity(
+		ctx,
+		s.botAuthClient,
+		s.getBotIdentity(),
+		roles,
+		effectiveLifetime.TTL,
+		func(req *proto.UserCertsRequest) {
+			req.ReissuableRoleImpersonation = s.cfg.AllowReissue
+		},
+	)
 	if err != nil {
 		return trace.Wrap(err, "generating identity")
 	}
 	// create a client that uses the impersonated identity, so that when we
 	// fetch information, we can ensure access rights are enforced.
-	impersonatedClient, err := s.clientBuilder.Build(ctx, id)
+	facade := identity.NewFacade(s.botCfg.FIPS, s.botCfg.Insecure, id)
+	impersonatedClient, err := clientForFacade(ctx, s.log, s.botCfg, facade, s.resolver)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 	defer impersonatedClient.Close()
 
 	if s.cfg.Cluster != "" {
-		id, err = s.identityGenerator.GenerateFacade(ctx, append(identityOpts,
-			identity.WithCurrentIdentityFacade(id),
-			identity.WithRouteToCluster(s.cfg.Cluster),
-		)...)
+		id, err = generateIdentity(
+			ctx,
+			s.botAuthClient,
+			id,
+			roles,
+			cmp.Or(s.cfg.CredentialLifetime, s.botCfg.CredentialLifetime).TTL,
+			func(req *proto.UserCertsRequest) {
+				req.RouteToCluster = s.cfg.Cluster
+				req.ReissuableRoleImpersonation = s.cfg.AllowReissue
+			},
+		)
 		if err != nil {
 			return trace.Wrap(err)
 		}
 	}
+
+	warnOnEarlyExpiration(ctx, s.log.With("output", s), id, effectiveLifetime)
 
 	hostCAs, err := s.botAuthClient.GetCertAuthorities(ctx, types.HostCA, false)
 	if err != nil {
@@ -182,16 +178,16 @@ func (s *IdentityOutputService) generate(ctx context.Context) error {
 		return trace.Wrap(err)
 	}
 
-	if err := s.render(ctx, id.Get(), hostCAs, userCAs, databaseCAs); err != nil {
+	if err := s.render(ctx, id, hostCAs, userCAs, databaseCAs); err != nil {
 		return trace.Wrap(err)
 	}
 
 	if s.cfg.SSHConfigMode == config.SSHConfigModeOn {
-		clusterNames, err := getClusterNames(ctx, impersonatedClient, id.Get().ClusterName)
+		clusterNames, err := getClusterNames(ctx, impersonatedClient, id.ClusterName)
 		if err != nil {
 			return trace.Wrap(err)
 		}
-		proxyPing, err := s.proxyPinger.Ping(ctx)
+		proxyPing, err := s.proxyPingCache.ping(ctx)
 		if err != nil {
 			return trace.Wrap(err, "pinging proxy")
 		}
@@ -224,16 +220,16 @@ func (s *IdentityOutputService) render(
 	)
 	defer span.End()
 
-	keyRing, err := internal.NewClientKeyRing(id, hostCAs)
+	keyRing, err := NewClientKeyRing(id, hostCAs)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := internal.WriteTLSCAs(ctx, s.cfg.Destination, hostCAs, userCAs, databaseCAs); err != nil {
+	if err := writeTLSCAs(ctx, s.cfg.Destination, hostCAs, userCAs, databaseCAs); err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := internal.WriteIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
+	if err := writeIdentityFile(ctx, s.log, keyRing, s.cfg.Destination); err != nil {
 		return trace.Wrap(err, "writing identity file")
 	}
 	if err := identity.SaveIdentity(
@@ -254,15 +250,15 @@ type certAuthGetter interface {
 }
 
 type alpnTester interface {
-	IsUpgradeRequired(ctx context.Context, addr string, insecure bool) (bool, error)
+	isUpgradeRequired(ctx context.Context, addr string, insecure bool) (bool, error)
 }
 
 func renderSSHConfig(
 	ctx context.Context,
 	log *slog.Logger,
-	proxyPing *connection.ProxyPong,
+	proxyPing *proxyPingResponse,
 	clusterNames []string,
-	dest destination.Destination,
+	dest bot.Destination,
 	certAuthGetter certAuthGetter,
 	getExecutablePath func() (string, error),
 	alpnTester alpnTester,
@@ -274,7 +270,7 @@ func renderSSHConfig(
 	)
 	defer span.End()
 
-	proxyAddr, err := proxyPing.ProxySSHAddr()
+	proxyAddr, err := proxyPing.proxySSHAddr()
 	if err != nil {
 		return trace.Wrap(err, "determining proxy ssh addr")
 	}
@@ -305,7 +301,7 @@ func renderSSHConfig(
 	}
 
 	// We only want to proceed further if we have a directory destination
-	destDirectory, ok := dest.(*destination.Directory)
+	destDirectory, ok := dest.(*config.DestinationDirectory)
 	if !ok {
 		return nil
 	}
@@ -336,7 +332,7 @@ func renderSSHConfig(
 	// are using TLS routing.
 	connUpgradeRequired := false
 	if proxyPing.Proxy.TLSRoutingEnabled {
-		connUpgradeRequired, err = alpnTester.IsUpgradeRequired(
+		connUpgradeRequired, err = alpnTester.isUpgradeRequired(
 			ctx, proxyAddr, botCfg.Insecure,
 		)
 		if err != nil {

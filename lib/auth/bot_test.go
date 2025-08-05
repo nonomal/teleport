@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/digitorus/pkcs7"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -71,7 +72,6 @@ import (
 	"github.com/gravitational/teleport/lib/tbot/identity"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func renewBotCerts(
@@ -81,7 +81,7 @@ func renewBotCerts(
 	botUser string,
 	key crypto.Signer,
 ) (*authclient.Client, *proto.Certs, error) {
-	fakeClock := srv.Clock().(*clockwork.FakeClock)
+	fakeClock := srv.Clock().(clockwork.FakeClock)
 
 	privateKeyPEM, err := keys.MarshalPrivateKey(key)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestRegisterBotCertificateGenerationCheck(t *testing.T) {
 
 	srv := newTestTLSServer(t)
 	ctx := context.Background()
-	fakeClock := srv.Clock().(*clockwork.FakeClock)
+	fakeClock := srv.Clock().(clockwork.FakeClock)
 
 	_, err := authtest.CreateRole(ctx, srv.Auth(), "example", types.RoleSpecV6{})
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestRegisterBotCertificateGenerationCheck(t *testing.T) {
 	certs := result.Certs
 
 	// Renew the cert a bunch of times.
-	for i := range 10 {
+	for i := 0; i < 10; i++ {
 		// Ensure the state of the bot instance before renewal is sane.
 		bi, err := srv.Auth().BotInstance.GetBotInstance(ctx, initialIdent.BotName, initialIdent.BotInstanceID)
 		require.NoError(t, err)
@@ -234,8 +234,6 @@ func TestRegisterBotCertificateGenerationCheck(t *testing.T) {
 // Whilst this specifically tests the Kubernetes join method, it tests by proxy
 // the implementation for most of the join methods.
 func TestBotJoinAttrs_Kubernetes(t *testing.T) {
-	t.Parallel()
-
 	srv := newTestTLSServer(t)
 	ctx := context.Background()
 
@@ -562,11 +560,7 @@ func TestRegisterBotCertificateGenerationStolen(t *testing.T) {
 	require.NoError(t, err)
 
 	// Renew the certs once (e.g. this is the actual bot process)
-	renewedClient, certsReal, err := renewBotCerts(ctx, srv, result.Certs.TLS, bot.Status.UserName, result.PrivateKey)
-	require.NoError(t, err)
-
-	// This client should be able to ping.
-	_, err = renewedClient.Ping(ctx)
+	_, certsReal, err := renewBotCerts(ctx, srv, result.Certs.TLS, bot.Status.UserName, result.PrivateKey)
 	require.NoError(t, err)
 
 	// Check the generation, it should be 2.
@@ -581,18 +575,12 @@ func TestRegisterBotCertificateGenerationStolen(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, trace.IsAccessDenied(err))
 
-	// The bot instance should now be locked.
+	// The user should now be locked.
 	locks, err := srv.Auth().GetLocks(ctx, true, types.LockTarget{
-		BotInstanceID: impersonatedIdent.BotInstanceID,
+		User: "bot-test",
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, locks)
-
-	// The original client should be locked out.
-	require.Eventually(t, func() bool {
-		_, err = renewedClient.Ping(ctx)
-		return err != nil && strings.Contains(err.Error(), "access denied")
-	}, 5*time.Second, 100*time.Millisecond)
 }
 
 // TestRegisterBotCertificateExtensions ensures bot cert extensions are present.
@@ -853,7 +841,7 @@ func authClientForRegisterResult(t *testing.T, ctx context.Context, addr *utils.
 		nil /* clock */)
 	require.NoError(t, err)
 
-	log := logtest.NewLogger()
+	log := utils.NewSlogLoggerForTests()
 	dialer, err := reversetunnelclient.NewTunnelAuthDialer(reversetunnelclient.TunnelAuthDialerConfig{
 		Resolver:              resolver,
 		ClientConfig:          sshConfig,
@@ -956,14 +944,16 @@ func TestRegisterBot_BotInstanceRejoin(t *testing.T) {
 		}),
 	})
 
-	t.Setenv("AWS_ACCESS_KEY_ID", "FAKE_ID")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "FAKE_KEY")
-	t.Setenv("AWS_SESSION_TOKEN", "FAKE_TOKEN")
+	nodeCredentials, err := credentials.NewStaticCredentials("FAKE_ID", "FAKE_KEY", "FAKE_TOKEN").Get()
+	require.NoError(t, err)
+	t.Setenv("AWS_ACCESS_KEY_ID", nodeCredentials.AccessKeyID)
+	t.Setenv("AWS_SECRET_ACCESS_KEY", nodeCredentials.SecretAccessKey)
+	t.Setenv("AWS_SESSION_TOKEN", nodeCredentials.SessionToken)
 	t.Setenv("AWS_REGION", "us-west-2")
 
 	// Create a bot
 	roleName := "test-role"
-	_, err := authtest.CreateRole(ctx, a, roleName, types.RoleSpecV6{})
+	_, err = authtest.CreateRole(ctx, a, roleName, types.RoleSpecV6{})
 	require.NoError(t, err)
 
 	botName := "bot"
@@ -1257,7 +1247,7 @@ func TestRegisterBotMultipleTokens(t *testing.T) {
 
 	require.NotEqual(t, initialInstanceA, initialInstanceB)
 
-	for i := range 6 {
+	for i := 0; i < 6; i++ {
 		_, certsA, err = renewBotCerts(ctx, srv, certsA.TLS, bot.Status.UserName, resultA.PrivateKey)
 		require.NoError(t, err)
 

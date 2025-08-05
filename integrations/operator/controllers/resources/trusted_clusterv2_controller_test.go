@@ -42,7 +42,7 @@ import (
 	"github.com/gravitational/teleport/integrations/operator/controllers/resources/testlib"
 	"github.com/gravitational/teleport/lib"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 type trustedClusterV2TestingPrimitives struct {
@@ -137,7 +137,7 @@ func (r *trustedClusterV2TestingPrimitives) setupTest(t *testing.T, clusterName 
 		ClusterName: clusterName,
 		HostID:      uuid.New().String(),
 		NodeName:    helpers.Loopback,
-		Logger:      logtest.NewLogger(),
+		Log:         utils.NewLoggerForTests(),
 	})
 	r.remoteCluster = remoteCluster
 

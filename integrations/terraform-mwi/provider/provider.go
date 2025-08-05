@@ -32,8 +32,6 @@ import (
 
 	apitypes "github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/tbot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/bot/onboarding"
 	"github.com/gravitational/teleport/lib/tbot/config"
 )
 
@@ -80,7 +78,7 @@ func (p *Provider) Schema(ctx context.Context, req provider.SchemaRequest, resp 
 				MarkdownDescription: "The join method to use to authenticate to the Teleport cluster.",
 				Required:            true,
 				Validators: []validator.String{
-					stringvalidator.OneOf(onboarding.SupportedJoinMethods...),
+					stringvalidator.OneOf(config.SupportedJoinMethods...),
 					// Explicitly prohibit the use of the token join method
 					// as we won't be able to persist state for it to work
 					// effectively.
@@ -111,15 +109,23 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 	}
 
 	// Shared internal store for the bot.
-	botInternalStore := destination.NewMemory()
+	botInternalStore := config.DestinationMemory{}
+	if err := botInternalStore.CheckAndSetDefaults(); err != nil {
+		resp.Diagnostics.AddError(
+			"Error setting defaults for bot internal store",
+			"Failed to set defaults for bot internal store: "+err.Error(),
+		)
+		return
+	}
+
 	newBotConfig := func() *config.BotConfig {
 		return &config.BotConfig{
 			Version:     "v2",
 			ProxyServer: data.ProxyServer.ValueString(),
 			Storage: &config.StorageConfig{
-				Destination: botInternalStore,
+				Destination: &botInternalStore,
 			},
-			Onboarding: onboarding.Config{
+			Onboarding: config.OnboardingConfig{
 				JoinMethod: apitypes.JoinMethod(data.JoinMethod.ValueString()),
 				TokenValue: data.JoinToken.ValueString(),
 			},

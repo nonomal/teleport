@@ -94,7 +94,6 @@ func NewIdentityCenterService(cfg IdentityCenterServiceConfig) (*IdentityCenterS
 		BackendPrefix: backend.NewKey(awsResourcePrefix, awsAccountPrefix),
 		MarshalFunc:   services.MarshalProtoResource[*identitycenterv1.Account],
 		UnmarshalFunc: services.UnmarshalProtoResource[*identitycenterv1.Account],
-		PageLimit:     identityCenterPageSize,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err, "creating accounts service")
@@ -106,7 +105,6 @@ func NewIdentityCenterService(cfg IdentityCenterServiceConfig) (*IdentityCenterS
 		BackendPrefix: backend.NewKey(awsResourcePrefix, awsPermissionSetPrefix),
 		MarshalFunc:   services.MarshalProtoResource[*identitycenterv1.PermissionSet],
 		UnmarshalFunc: services.UnmarshalProtoResource[*identitycenterv1.PermissionSet],
-		PageLimit:     identityCenterPageSize,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err, "creating permission sets service")
@@ -118,7 +116,6 @@ func NewIdentityCenterService(cfg IdentityCenterServiceConfig) (*IdentityCenterS
 		BackendPrefix: backend.NewKey(awsResourcePrefix, awsPrincipalAssignmentPrefix),
 		MarshalFunc:   services.MarshalProtoResource[*identitycenterv1.PrincipalAssignment],
 		UnmarshalFunc: services.UnmarshalProtoResource[*identitycenterv1.PrincipalAssignment],
-		PageLimit:     identityCenterPageSize,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err, "creating principal assignments service")
@@ -130,7 +127,6 @@ func NewIdentityCenterService(cfg IdentityCenterServiceConfig) (*IdentityCenterS
 		BackendPrefix: backend.NewKey(awsResourcePrefix, awsAccountAssignmentPrefix),
 		MarshalFunc:   services.MarshalProtoResource[*identitycenterv1.AccountAssignment],
 		UnmarshalFunc: services.UnmarshalProtoResource[*identitycenterv1.AccountAssignment],
-		PageLimit:     identityCenterPageSize,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err, "creating account assignments service")
@@ -149,14 +145,18 @@ func NewIdentityCenterService(cfg IdentityCenterServiceConfig) (*IdentityCenterS
 // ListIdentityCenterAccounts provides a paged list of all AWS accounts known
 // to the Identity Center integration
 func (svc *IdentityCenterService) ListIdentityCenterAccounts(ctx context.Context, pageSize int, page *pagination.PageRequestToken) ([]services.IdentityCenterAccount, pagination.NextPageToken, error) {
+	if pageSize == 0 {
+		pageSize = identityCenterPageSize
+	}
+
 	pageToken, err := page.Consume()
 	if err != nil {
 		return nil, "", trace.Wrap(err, "listing identity center assignment records")
 	}
 
-	accounts, nextPage, err := svc.ListIdentityCenterAccounts2(ctx, pageSize, pageToken)
+	accounts, nextPage, err := svc.accounts.ListResources(ctx, pageSize, pageToken)
 	if err != nil {
-		return nil, "", trace.Wrap(err)
+		return nil, "", trace.Wrap(err, "listing identity center assignment records")
 	}
 
 	result := make([]services.IdentityCenterAccount, len(accounts))
@@ -167,74 +167,44 @@ func (svc *IdentityCenterService) ListIdentityCenterAccounts(ctx context.Context
 	return result, pagination.NextPageToken(nextPage), nil
 }
 
-// ListIdentityCenterAccounts2 provides a paged list of all AWS accounts known
-// to the Identity Center integration
-func (svc *IdentityCenterService) ListIdentityCenterAccounts2(ctx context.Context, pageSize int, pageToken string) ([]*identitycenterv1.Account, string, error) {
-	accounts, nextPage, err := svc.accounts.ListResources(ctx, pageSize, pageToken)
-	if err != nil {
-		return nil, "", trace.Wrap(err, "listing identity center assignment records")
-	}
-
-	return accounts, nextPage, nil
-}
-
 // CreateIdentityCenterAccount creates a new Identity Center Account record
 func (svc *IdentityCenterService) CreateIdentityCenterAccount(ctx context.Context, acct services.IdentityCenterAccount) (services.IdentityCenterAccount, error) {
-	created, err := svc.CreateIdentityCenterAccount2(ctx, acct.Account)
+	created, err := svc.accounts.CreateResource(ctx, acct.Account)
 	if err != nil {
-		return services.IdentityCenterAccount{}, trace.Wrap(err)
+		return services.IdentityCenterAccount{}, trace.Wrap(err, "creating identity center account")
 	}
 	return services.IdentityCenterAccount{Account: created}, nil
 }
 
-// CreateIdentityCenterAccount2 creates a new Identity Center Account record
-func (svc *IdentityCenterService) CreateIdentityCenterAccount2(ctx context.Context, acct *identitycenterv1.Account) (*identitycenterv1.Account, error) {
-	created, err := svc.accounts.CreateResource(ctx, acct)
-	if err != nil {
-		return nil, trace.Wrap(err, "creating identity center account")
-	}
-	return created, nil
-}
-
 // GetIdentityCenterAccount fetches a specific Identity Center Account
-func (svc *IdentityCenterService) GetIdentityCenterAccount(ctx context.Context, name string) (*identitycenterv1.Account, error) {
-	acct, err := svc.accounts.GetResource(ctx, name)
+func (svc *IdentityCenterService) GetIdentityCenterAccount(ctx context.Context, name services.IdentityCenterAccountID) (services.IdentityCenterAccount, error) {
+	acct, err := svc.accounts.GetResource(ctx, string(name))
 	if err != nil {
-		return nil, trace.Wrap(err, "fetching identity center account")
+		return services.IdentityCenterAccount{}, trace.Wrap(err, "fetching identity center account")
 	}
-	return acct, nil
+	return services.IdentityCenterAccount{Account: acct}, nil
 }
 
 // UpdateIdentityCenterAccount performs a conditional update on an Identity
 // Center Account record, returning the updated record on success.
 func (svc *IdentityCenterService) UpdateIdentityCenterAccount(ctx context.Context, acct services.IdentityCenterAccount) (services.IdentityCenterAccount, error) {
-	updated, err := svc.UpdateIdentityCenterAccount2(ctx, acct.Account)
+	updated, err := svc.accounts.ConditionalUpdateResource(ctx, acct.Account)
 	if err != nil {
-		return services.IdentityCenterAccount{}, trace.Wrap(err)
+		return services.IdentityCenterAccount{}, trace.Wrap(err, "updating identity center account record")
 	}
 	return services.IdentityCenterAccount{Account: updated}, nil
-}
-
-// UpdateIdentityCenterAccount2 performs a conditional update on an Identity
-// Center Account record, returning the updated record on success.
-func (svc *IdentityCenterService) UpdateIdentityCenterAccount2(ctx context.Context, acct *identitycenterv1.Account) (*identitycenterv1.Account, error) {
-	updated, err := svc.accounts.ConditionalUpdateResource(ctx, acct)
-	if err != nil {
-		return nil, trace.Wrap(err, "updating identity center account record")
-	}
-	return updated, nil
 }
 
 // UpsertIdentityCenterAccount performs an *unconditional* upsert on an
 // Identity Center Account record, returning the updated record on success.
 // Be careful when mixing UpsertIdentityCenterAccount() with resources
 // protected by optimistic locking
-func (svc *IdentityCenterService) UpsertIdentityCenterAccount(ctx context.Context, acct *identitycenterv1.Account) (*identitycenterv1.Account, error) {
-	updated, err := svc.accounts.UpsertResource(ctx, acct)
+func (svc *IdentityCenterService) UpsertIdentityCenterAccount(ctx context.Context, acct services.IdentityCenterAccount) (services.IdentityCenterAccount, error) {
+	updated, err := svc.accounts.UpsertResource(ctx, acct.Account)
 	if err != nil {
-		return nil, trace.Wrap(err, "upserting identity center account record")
+		return services.IdentityCenterAccount{}, trace.Wrap(err, "upserting identity center account record")
 	}
-	return updated, nil
+	return services.IdentityCenterAccount{Account: updated}, nil
 }
 
 // DeleteIdentityCenterAccount deletes an Identity Center Account record
@@ -247,27 +217,22 @@ func (svc *IdentityCenterService) DeleteAllIdentityCenterAccounts(ctx context.Co
 	return trace.Wrap(svc.accounts.DeleteAllResources(ctx))
 }
 
-// ListPrincipalAssignments lists a page of PrincipalAssignment records in the service.
+// ListPrincipalAssignments lists all PrincipalAssignment records in the service
 func (svc *IdentityCenterService) ListPrincipalAssignments(ctx context.Context, pageSize int, page *pagination.PageRequestToken) ([]*identitycenterv1.PrincipalAssignment, pagination.NextPageToken, error) {
+	if pageSize == 0 {
+		pageSize = identityCenterPageSize
+	}
+
 	pageToken, err := page.Consume()
 	if err != nil {
 		return nil, "", trace.Wrap(err, "extracting page token")
 	}
 
-	resp, nextPage, err := svc.ListPrincipalAssignments2(ctx, pageSize, pageToken)
-	if err != nil {
-		return nil, "", trace.Wrap(err)
-	}
-	return resp, pagination.NextPageToken(nextPage), nil
-}
-
-// ListPrincipalAssignments2 lists a page of PrincipalAssignment records in the service.
-func (svc *IdentityCenterService) ListPrincipalAssignments2(ctx context.Context, pageSize int, pageToken string) ([]*identitycenterv1.PrincipalAssignment, string, error) {
 	resp, nextPage, err := svc.principalAssignments.ListResources(ctx, pageSize, pageToken)
 	if err != nil {
 		return nil, "", trace.Wrap(err, "listing identity center assignment records")
 	}
-	return resp, nextPage, nil
+	return resp, pagination.NextPageToken(nextPage), nil
 }
 
 // CreatePrincipalAssignment creates a new Principal Assignment record in the
@@ -320,27 +285,20 @@ func (svc *IdentityCenterService) DeleteAllPrincipalAssignments(ctx context.Cont
 	return trace.Wrap(svc.principalAssignments.DeleteAllResources(ctx))
 }
 
-// ListPermissionSets returns a page of known Permission Sets in the managed Identity Center
+// ListPermissionSets list the known Permission Sets in the managed Identity Center
 func (svc *IdentityCenterService) ListPermissionSets(ctx context.Context, pageSize int, page *pagination.PageRequestToken) ([]*identitycenterv1.PermissionSet, pagination.NextPageToken, error) {
+	if pageSize == 0 {
+		pageSize = identityCenterPageSize
+	}
 	pageToken, err := page.Consume()
 	if err != nil {
 		return nil, "", trace.Wrap(err, "extracting page token")
 	}
-	resp, nextPage, err := svc.ListPermissionSets2(ctx, pageSize, pageToken)
-	if err != nil {
-		return nil, "", trace.Wrap(err, "listing identity center permission set records")
-	}
-	return resp, pagination.NextPageToken(nextPage), nil
-}
-
-// ListPermissionSets2 returns a page of known Permission Sets in the managed Identity Center
-func (svc *IdentityCenterService) ListPermissionSets2(ctx context.Context, pageSize int, pageToken string) ([]*identitycenterv1.PermissionSet, string, error) {
-
 	resp, nextPage, err := svc.permissionSets.ListResources(ctx, pageSize, pageToken)
 	if err != nil {
 		return nil, "", trace.Wrap(err, "listing identity center permission set records")
 	}
-	return resp, nextPage, nil
+	return resp, pagination.NextPageToken(nextPage), nil
 }
 
 // CreatePermissionSet creates a new PermissionSet record based on the supplied
@@ -382,15 +340,19 @@ func (svc *IdentityCenterService) DeleteAllPermissionSets(ctx context.Context) e
 	return trace.Wrap(svc.permissionSets.DeleteAllResources(ctx))
 }
 
-// ListAccountAssignments returns a page of IdentityCenterAccountAssignment records.
+// ListAccountAssignments lists all IdentityCenterAccountAssignment record
+// known to the service
 func (svc *IdentityCenterService) ListAccountAssignments(ctx context.Context, pageSize int, page *pagination.PageRequestToken) ([]services.IdentityCenterAccountAssignment, pagination.NextPageToken, error) {
+	if pageSize == 0 {
+		pageSize = identityCenterPageSize
+	}
 	pageToken, err := page.Consume()
 	if err != nil {
 		return nil, "", trace.Wrap(err, "extracting page token")
 	}
-	assignments, nextPage, err := svc.ListIdentityCenterAccountAssignments(ctx, pageSize, pageToken)
+	assignments, nextPage, err := svc.accountAssignments.ListResources(ctx, pageSize, pageToken)
 	if err != nil {
-		return nil, "", trace.Wrap(err)
+		return nil, "", trace.Wrap(err, "listing identity center assignment records")
 	}
 
 	result := make([]services.IdentityCenterAccountAssignment, len(assignments))
@@ -401,84 +363,44 @@ func (svc *IdentityCenterService) ListAccountAssignments(ctx context.Context, pa
 	return result, pagination.NextPageToken(nextPage), nil
 }
 
-// ListIdentityCenterAccountAssignments returns a page of IdentityCenterAccountAssignment records.
-func (svc *IdentityCenterService) ListIdentityCenterAccountAssignments(ctx context.Context, pageSize int, pageToken string) ([]*identitycenterv1.AccountAssignment, string, error) {
-	assignments, nextPage, err := svc.accountAssignments.ListResources(ctx, pageSize, pageToken)
-	if err != nil {
-		return nil, "", trace.Wrap(err, "listing identity center assignment records")
-	}
-
-	return assignments, nextPage, nil
-}
-
 // CreateAccountAssignment creates a new Account Assignment record in
 // the service from the supplied in-memory representation. Returns the
 // created record on success.
 func (svc *IdentityCenterService) CreateAccountAssignment(ctx context.Context, asmt services.IdentityCenterAccountAssignment) (services.IdentityCenterAccountAssignment, error) {
-	created, err := svc.CreateIdentityCenterAccountAssignment(ctx, asmt.AccountAssignment)
+	created, err := svc.accountAssignments.CreateResource(ctx, asmt.AccountAssignment)
 	if err != nil {
-		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err)
+		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err, "creating principal assignment")
 	}
 	return services.IdentityCenterAccountAssignment{AccountAssignment: created}, nil
 }
 
-// CreateIdentityCenterAccountAssignment creates a new Account Assignment record in
-// the service from the supplied in-memory representation. Returns the
-// created record on success.
-func (svc *IdentityCenterService) CreateIdentityCenterAccountAssignment(ctx context.Context, asmt *identitycenterv1.AccountAssignment) (*identitycenterv1.AccountAssignment, error) {
-	created, err := svc.accountAssignments.CreateResource(ctx, asmt)
-	if err != nil {
-		return nil, trace.Wrap(err, "creating principal assignment")
-	}
-	return created, nil
-}
-
 // GetAccountAssignment fetches a specific Account Assignment record.
 func (svc *IdentityCenterService) GetAccountAssignment(ctx context.Context, name services.IdentityCenterAccountAssignmentID) (services.IdentityCenterAccountAssignment, error) {
-	asmt, err := svc.GetIdentityCenterAccountAssignment(ctx, string(name))
+	asmt, err := svc.accountAssignments.GetResource(ctx, string(name))
 	if err != nil {
-		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err)
+		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err, "fetching principal assignment")
 	}
 	return services.IdentityCenterAccountAssignment{AccountAssignment: asmt}, nil
-}
-
-// GetIdentityCenterAccountAssignment fetches a specific Account Assignment record.
-func (svc *IdentityCenterService) GetIdentityCenterAccountAssignment(ctx context.Context, name string) (*identitycenterv1.AccountAssignment, error) {
-	asmt, err := svc.accountAssignments.GetResource(ctx, name)
-	if err != nil {
-		return nil, trace.Wrap(err, "fetching principal assignment")
-	}
-	return asmt, nil
 }
 
 // UpdateAccountAssignment performs a conditional update on the supplied
 // Account Assignment, returning the updated record on success.
 func (svc *IdentityCenterService) UpdateAccountAssignment(ctx context.Context, asmt services.IdentityCenterAccountAssignment) (services.IdentityCenterAccountAssignment, error) {
-	updated, err := svc.UpdateIdentityCenterAccountAssignment(ctx, asmt.AccountAssignment)
+	updated, err := svc.accountAssignments.ConditionalUpdateResource(ctx, asmt.AccountAssignment)
 	if err != nil {
-		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err)
+		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err, "updating principal assignment record")
 	}
 	return services.IdentityCenterAccountAssignment{AccountAssignment: updated}, nil
 }
 
-// UpdateIdentityCenterAccountAssignment performs a conditional update on the supplied
-// Account Assignment, returning the updated record on success.
-func (svc *IdentityCenterService) UpdateIdentityCenterAccountAssignment(ctx context.Context, asmt *identitycenterv1.AccountAssignment) (*identitycenterv1.AccountAssignment, error) {
-	updated, err := svc.accountAssignments.ConditionalUpdateResource(ctx, asmt)
-	if err != nil {
-		return nil, trace.Wrap(err, "updating principal assignment record")
-	}
-	return updated, nil
-}
-
 // UpsertAccountAssignment performs an unconditional upsert on the supplied
 // Account Assignment, returning the updated record on success.
-func (svc *IdentityCenterService) UpsertAccountAssignment(ctx context.Context, asmt *identitycenterv1.AccountAssignment) (*identitycenterv1.AccountAssignment, error) {
-	updated, err := svc.accountAssignments.UpsertResource(ctx, asmt)
+func (svc *IdentityCenterService) UpsertAccountAssignment(ctx context.Context, asmt services.IdentityCenterAccountAssignment) (services.IdentityCenterAccountAssignment, error) {
+	updated, err := svc.accountAssignments.UpsertResource(ctx, asmt.AccountAssignment)
 	if err != nil {
-		return nil, trace.Wrap(err, "upserting principal assignment record")
+		return services.IdentityCenterAccountAssignment{}, trace.Wrap(err, "upserting principal assignment record")
 	}
-	return updated, nil
+	return services.IdentityCenterAccountAssignment{AccountAssignment: updated}, nil
 }
 
 // DeleteAccountAssignment deletes a specific account assignment

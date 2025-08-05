@@ -33,8 +33,6 @@ import (
 )
 
 func TestWithOwnersIneligibleStatusField(t *testing.T) {
-	t.Parallel()
-
 	proto := []*accesslistv1.AccessListOwner{
 		{
 			Name:             "expired",
@@ -122,16 +120,9 @@ func TestRoundtrip(t *testing.T) {
 			},
 		},
 		{
-			name: "implicit-dynamic-type",
-			modificationFn: func(accessList *accesslist.AccessList) {
-				accessList.Spec.Type = ""
-			},
-		},
-		{
 			name: "static-type",
 			modificationFn: func(accessList *accesslist.AccessList) {
 				accessList.Spec.Type = accesslist.Static
-				accessList.Spec.Audit = accesslist.Audit{}
 			},
 		},
 	} {
@@ -151,10 +142,17 @@ func TestRoundtrip(t *testing.T) {
 	}
 }
 
+func Test_FromProto_withBadType(t *testing.T) {
+	accessList := newAccessList(t, "access-list")
+	accessList.Spec.Type = "test_bad_type"
+
+	_, err := FromProto(ToProto(accessList))
+	require.Error(t, err)
+	require.ErrorContains(t, err, `unknown access_list type "test_bad_type"`)
+}
+
 // Make sure that we don't panic if any of the message fields are missing.
 func TestFromProtoNils(t *testing.T) {
-	t.Parallel()
-
 	t.Run("spec", func(t *testing.T) {
 		accessList := ToProto(newAccessList(t, "access-list"))
 		accessList.Spec = nil
@@ -168,7 +166,7 @@ func TestFromProtoNils(t *testing.T) {
 		accessList.Spec.Owners = nil
 
 		_, err := FromProto(accessList)
-		require.NoError(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("audit", func(t *testing.T) {
@@ -322,8 +320,6 @@ func TestNextAuditDateZeroTime(t *testing.T) {
 }
 
 func TestConvAccessList(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name  string
 		input *accesslistv1.AccessList
@@ -427,6 +423,21 @@ func TestConvAccessList(t *testing.T) {
 					Owners:             []*accesslistv1.AccessListOwner{},
 					OwnershipRequires:  &accesslistv1.AccessListRequires{},
 					MembershipRequires: &accesslistv1.AccessListRequires{},
+					Audit: &accesslistv1.AccessListAudit{
+						Recurrence: &accesslistv1.Recurrence{
+							Frequency:  1,
+							DayOfMonth: 1,
+						},
+						NextAuditDate: &timestamppb.Timestamp{
+							Seconds: 6,
+							Nanos:   1,
+						},
+						Notifications: &accesslistv1.Notifications{
+							Start: &durationpb.Duration{
+								Seconds: 1209600,
+							},
+						},
+					},
 					Grants: &accesslistv1.AccessListGrants{
 						Roles: []string{"role1"},
 					},

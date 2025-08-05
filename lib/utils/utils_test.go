@@ -32,11 +32,10 @@ import (
 
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/utils/cert"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func TestMain(m *testing.M) {
-	logtest.InitLogger(testing.Verbose)
+	InitLoggerForTests()
 	os.Exit(m.Run())
 }
 
@@ -57,7 +56,7 @@ func TestRandomDuration(t *testing.T) {
 
 	expectedMin := time.Duration(0)
 	expectedMax := time.Second * 10
-	for range 50 {
+	for i := 0; i < 50; i++ {
 		dur := RandomDuration(expectedMax)
 		require.GreaterOrEqual(t, dur, expectedMin)
 		require.Less(t, dur, expectedMax)
@@ -478,8 +477,8 @@ func TestMarshalYAML(t *testing.T) {
 	}
 	testCases := []struct {
 		comment  string
-		val      any
-		expected any
+		val      interface{}
+		expected interface{}
 		isDoc    bool
 	}{
 		{
@@ -488,23 +487,23 @@ func TestMarshalYAML(t *testing.T) {
 		},
 		{
 			comment: "list of yaml types",
-			val:     []any{"hello", "there"},
+			val:     []interface{}{"hello", "there"},
 		},
 		{
 			comment:  "list of yaml documents",
-			val:      []any{kv{Key: "a"}, kv{Key: "b"}},
-			expected: []any{map[string]any{"Key": "a"}, map[string]any{"Key": "b"}},
+			val:      []interface{}{kv{Key: "a"}, kv{Key: "b"}},
+			expected: []interface{}{map[string]interface{}{"Key": "a"}, map[string]interface{}{"Key": "b"}},
 			isDoc:    true,
 		},
 		{
 			comment:  "list of pointers to yaml docs",
-			val:      []any{kv{Key: "a"}, &kv{Key: "b"}},
-			expected: []any{map[string]any{"Key": "a"}, map[string]any{"Key": "b"}},
+			val:      []interface{}{kv{Key: "a"}, &kv{Key: "b"}},
+			expected: []interface{}{map[string]interface{}{"Key": "a"}, map[string]interface{}{"Key": "b"}},
 			isDoc:    true,
 		},
 		{
 			comment: "list of maps",
-			val:     []any{map[string]any{"Key": "a"}, map[string]any{"Key": "b"}},
+			val:     []interface{}{map[string]interface{}{"Key": "a"}, map[string]interface{}{"Key": "b"}},
 			isDoc:   true,
 		},
 	}

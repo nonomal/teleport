@@ -34,7 +34,6 @@ import (
 	prehogv1a "github.com/gravitational/teleport/gen/proto/go/prehog/v1alpha"
 	prehogv1ac "github.com/gravitational/teleport/gen/proto/go/prehog/v1alpha/prehogv1alphaconnect"
 	"github.com/gravitational/teleport/lib/tbot/config"
-	"github.com/gravitational/teleport/lib/tbot/services/application"
 )
 
 const (
@@ -101,7 +100,7 @@ func sendTelemetry(
 	}
 	for _, output := range cfg.Services {
 		switch output.(type) {
-		case *application.OutputConfig:
+		case *config.ApplicationOutput:
 			data.DestinationsApplication++
 		case *config.DatabaseOutput:
 			data.DestinationsDatabase++

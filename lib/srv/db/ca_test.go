@@ -684,6 +684,7 @@ func TestTLSConfiguration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -693,6 +694,7 @@ func TestTLSConfiguration(t *testing.T) {
 				defaults.ProtocolMySQL,
 				defaults.ProtocolMongoDB,
 			} {
+				dbType := dbType
 				t.Run(dbType, func(t *testing.T) {
 					ctx := context.Background()
 					cfg := &setupTLSTestCfg{
@@ -852,7 +854,7 @@ func TestCADownloaderGetVersion(t *testing.T) {
 				desc:        "without support to ETag returns error",
 				database:    rds,
 				supportEtag: false,
-				expectError: func(t require.TestingT, err error, _ ...any) {
+				expectError: func(t require.TestingT, err error, _ ...interface{}) {
 					require.Error(t, err)
 					require.True(t, trace.IsNotImplemented(err), "expected trace.NotImplementedError but received %T", err)
 				},

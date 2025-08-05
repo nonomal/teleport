@@ -38,7 +38,7 @@ import (
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/tbot/bot"
+	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/workloadidentity"
 )
 
@@ -49,7 +49,7 @@ type workloadIdentityCommands struct {
 func newWorkloadIdentityCommands(
 	app *kingpin.Application,
 ) workloadIdentityCommands {
-	cmd := app.Command("workload-identity", "Issue Workload Identity credentials.")
+	cmd := app.Command("workload-identity", "Issue Workload Identity credentials")
 	cmds := workloadIdentityCommands{
 		issueX509: newIssueX509Command(cmd),
 	}
@@ -71,7 +71,7 @@ func newIssueX509Command(parent *kingpin.CmdClause) *issueX509Command {
 
 	cmd.Flag(
 		"name-selector",
-		"The name of the workload identity to issue.",
+		"The name of the workload identity to issue",
 	).StringVar(&cmd.nameSelector)
 	cmd.Flag(
 		"label-selector",
@@ -96,7 +96,7 @@ func (c *issueX509Command) run(cf *CLIConf) error {
 	}
 	tc.AllowHeadless = true
 
-	selector := bot.WorkloadIdentitySelector{}
+	selector := config.WorkloadIdentitySelector{}
 	switch {
 	case c.nameSelector != "" && c.labelSelector != "":
 		return trace.BadParameter("cannot specify both name and label selectors")
@@ -243,7 +243,7 @@ type svidCommands struct {
 }
 
 func newSVIDCommands(app *kingpin.Application) svidCommands {
-	cmd := app.Command("svid", "Manage Teleport Workload Identity SVIDs.").Hidden()
+	cmd := app.Command("svid", "Manage Teleport Workload Identity SVIDs.")
 	cmds := svidCommands{
 		issue: newSVIDIssueCommand(cmd),
 	}
@@ -294,11 +294,6 @@ func newSVIDIssueCommand(parent *kingpin.CmdClause) *svidIssueCommand {
 }
 
 func (c *svidIssueCommand) run(cf *CLIConf) error {
-	logger.WarnContext(
-		cf.Context,
-		"The 'tsh svid issue' command is deprecated and will be removed in Teleport V19.0.0. See https://goteleport.com/docs/reference/workload-identity/configuration-resource-migration/ for further information.",
-	)
-
 	ctx := cf.Context
 	// Validate flags
 	if c.svidType != svidTypeX509 {

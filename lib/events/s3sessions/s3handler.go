@@ -37,9 +37,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/smithy-go/tracing/smithyoteltracing"
 	"github.com/gravitational/trace"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 
 	"github.com/gravitational/teleport"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
@@ -48,7 +47,6 @@ import (
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/modules"
 	awsmetrics "github.com/gravitational/teleport/lib/observability/metrics/aws"
-	s3metrics "github.com/gravitational/teleport/lib/observability/metrics/s3"
 	"github.com/gravitational/teleport/lib/session"
 	awsutils "github.com/gravitational/teleport/lib/utils/aws"
 	"github.com/gravitational/teleport/lib/utils/aws/endpoint"
@@ -224,10 +222,7 @@ func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
 		opts = append(opts, config.WithCredentialsProvider(cfg.CredentialsProvider))
 	}
 
-	opts = append(opts,
-		config.WithAPIOptions(awsmetrics.MetricsMiddleware()),
-		config.WithAPIOptions(s3metrics.MetricsMiddleware()),
-	)
+	opts = append(opts, config.WithAPIOptions(awsmetrics.MetricsMiddleware()))
 
 	resolver, err := endpoint.NewLoggingResolver(
 		s3.NewDefaultEndpointResolverV2(),
@@ -240,12 +235,7 @@ func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
 		return nil, trace.Wrap(err)
 	}
 
-	s3Opts := []func(*s3.Options){
-		s3.WithEndpointResolverV2(resolver),
-		func(o *s3.Options) {
-			o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
-		},
-	}
+	s3Opts := []func(*s3.Options){s3.WithEndpointResolverV2(resolver)}
 
 	if cfg.Endpoint != "" {
 		if _, err := url.Parse(cfg.Endpoint); err != nil {
@@ -269,6 +259,8 @@ func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	otelaws.AppendMiddlewares(&awsConfig.APIOptions)
 
 	// Create S3 client with custom options
 	client := s3.NewFromConfig(awsConfig, s3Opts...)
@@ -319,20 +311,11 @@ func (h *Handler) Close() error {
 	return nil
 }
 
-// Upload reads the content of a session recording from a reader and uploads it
-// to an S3 bucket. If successful, it returns URL of the uploaded object.
+// Upload uploads object to S3 bucket, reads the contents of the object from reader
+// and returns the target S3 bucket path in case of successful upload.
 func (h *Handler) Upload(ctx context.Context, sessionID session.ID, reader io.Reader) (string, error) {
-	return h.uploadFile(ctx, h.recordingPath(sessionID), reader)
-}
+	path := h.path(sessionID)
 
-// UploadSummary reads the content of a session summary from a reader and
-// uploads it to an S3 bucket. If successful, it returns URL of the uploaded
-// object.
-func (h *Handler) UploadSummary(ctx context.Context, sessionID session.ID, reader io.Reader) (string, error) {
-	return h.uploadFile(ctx, h.summaryPath(sessionID), reader)
-}
-
-func (h *Handler) uploadFile(ctx context.Context, path string, reader io.Reader) (string, error) {
 	uploadInput := &s3.PutObjectInput{
 		Bucket: aws.String(h.Bucket),
 		Key:    aws.String(path),
@@ -354,34 +337,22 @@ func (h *Handler) uploadFile(ctx context.Context, path string, reader io.Reader)
 	return fmt.Sprintf("%v://%v/%v", teleport.SchemeS3, h.Bucket, path), nil
 }
 
-// Download downloads a session recording from an S3 bucket and writes the
-// result into a writer. Returns trace.NotFound error if the recording is not
-// found.
-func (h *Handler) Download(ctx context.Context, sessionID session.ID, writer events.RandomAccessWriter) error {
-	return h.downloadFile(ctx, h.recordingPath(sessionID), writer)
-}
-
-// DownloadSummary downloads a session summary from an S3 bucket and writes the
-// results into a writer. Returns trace.NotFound error if the summary is not
-// found.
-func (h *Handler) DownloadSummary(ctx context.Context, sessionID session.ID, writer events.RandomAccessWriter) error {
-	return h.downloadFile(ctx, h.summaryPath(sessionID), writer)
-}
-
-func (h *Handler) downloadFile(ctx context.Context, path string, writer events.RandomAccessWriter) error {
+// Download downloads recorded session from S3 bucket and writes the results
+// into writer return trace.NotFound error is object is not found.
+func (h *Handler) Download(ctx context.Context, sessionID session.ID, writer io.WriterAt) error {
 	// Get the oldest version of this object. This has to be done because S3
 	// allows overwriting objects in a bucket. To prevent corruption of recording
 	// data, get all versions and always return the first.
-	versionID, err := h.getOldestVersion(ctx, h.Bucket, path)
+	versionID, err := h.getOldestVersion(ctx, h.Bucket, h.path(sessionID))
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	h.logger.DebugContext(ctx, "Downloading file from S3", "bucket", h.Bucket, "path", path, "version_id", versionID)
+	h.logger.DebugContext(ctx, "Downloading recording from S3", "bucket", h.Bucket, "path", h.path(sessionID), "version_id", versionID)
 
 	_, err = h.downloader.Download(ctx, writer, &s3.GetObjectInput{
 		Bucket:    aws.String(h.Bucket),
-		Key:       aws.String(path),
+		Key:       aws.String(h.path(sessionID)),
 		VersionId: aws.String(versionID),
 	})
 	if err != nil {
@@ -432,7 +403,7 @@ func (h *Handler) getOldestVersion(ctx context.Context, bucket string, prefix st
 	return versions[0].ID, nil
 }
 
-// deleteBucket deletes the bucket and all its contents and is used in tests
+// delete bucket deletes bucket and all it's contents and is used in tests
 func (h *Handler) deleteBucket(ctx context.Context) error {
 	// first, list and delete all the objects in the bucket
 	paginator := s3.NewListObjectVersionsPaginator(h.client, &s3.ListObjectVersionsInput{
@@ -462,18 +433,11 @@ func (h *Handler) deleteBucket(ctx context.Context) error {
 	return awsutils.ConvertS3Error(err)
 }
 
-func (h *Handler) recordingPath(sessionID session.ID) string {
+func (h *Handler) path(sessionID session.ID) string {
 	if h.Path == "" {
 		return string(sessionID) + ".tar"
 	}
 	return strings.TrimPrefix(path.Join(h.Path, string(sessionID)+".tar"), "/")
-}
-
-func (h *Handler) summaryPath(sessionID session.ID) string {
-	if h.Path == "" {
-		return string(sessionID) + ".summary.json"
-	}
-	return strings.TrimPrefix(path.Join(h.Path, string(sessionID)+".summary.json"), "/")
 }
 
 func (h *Handler) fromPath(p string) session.ID {
@@ -507,7 +471,8 @@ func (h *Handler) ensureBucket(ctx context.Context) error {
 		CreateBucketConfiguration: awsutils.CreateBucketConfiguration(h.Region),
 	}
 	_, err = h.client.CreateBucket(ctx, input)
-	if err := awsutils.ConvertS3Error(err); err != nil {
+	err = awsutils.ConvertS3Error(err, fmt.Sprintf("bucket %v already exists", aws.String(h.Bucket)))
+	if err != nil {
 		if !trace.IsAlreadyExists(err) {
 			return trace.Wrap(err)
 		}
@@ -523,8 +488,9 @@ func (h *Handler) ensureBucket(ctx context.Context) error {
 			Status: awstypes.BucketVersioningStatusEnabled,
 		},
 	})
-	if err := awsutils.ConvertS3Error(err); err != nil {
-		return trace.Wrap(err, "failed to set versioning state for bucket %q", h.Bucket)
+	err = awsutils.ConvertS3Error(err, fmt.Sprintf("failed to set versioning state for bucket %q", h.Bucket))
+	if err != nil {
+		return trace.Wrap(err)
 	}
 
 	// Turn on server-side encryption for the bucket.
@@ -541,8 +507,9 @@ func (h *Handler) ensureBucket(ctx context.Context) error {
 				},
 			},
 		})
-		if err := awsutils.ConvertS3Error(err); err != nil {
-			return trace.Wrap(err, "failed to set encryption state for bucket %q", h.Bucket)
+		err = awsutils.ConvertS3Error(err, fmt.Sprintf("failed to set encryption state for bucket %q", h.Bucket))
+		if err != nil {
+			return trace.Wrap(err)
 		}
 	}
 	return nil

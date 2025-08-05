@@ -58,6 +58,7 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 
 	"github.com/gravitational/trace"
@@ -71,8 +72,37 @@ import (
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/metadata"
 	"github.com/gravitational/teleport/lib/reversetunnelclient"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
+	"github.com/gravitational/teleport/lib/tbot/config"
 )
+
+// Address contains an address string tagged with whether it belongs to a proxy
+// or auth server.
+type Address struct {
+	// Addr contains the address string.
+	Addr string
+
+	// Kind of address (i.e. auth server or proxy).
+	Kind config.AddressKind
+}
+
+// String implements fmt.Stringer.
+func (a Address) String() string {
+	return fmt.Sprintf("%s: %s", a.Kind, a.Addr)
+}
+
+// Validate the address string and kind.
+func (a Address) Validate() error {
+	if a.Addr == "" {
+		return trace.BadParameter("address is required")
+	}
+
+	switch a.Kind {
+	case config.AddressKindProxy, config.AddressKindAuth:
+		return nil
+	default:
+		return trace.BadParameter("unsupported address type: %s", a.Kind)
+	}
+}
 
 // Identity provides the TLS and SSH credentials required to dial a connection.
 type Identity interface {
@@ -85,9 +115,12 @@ type Identity interface {
 
 // Config contains options used to create the API client.
 type Config struct {
-	// Connection contains the address etc. used to dial a connection to the
-	// auth server.
-	Connection connection.Config
+	// Address that will be dialed to create the client connection.
+	Address Address
+
+	// AuthServerAddressMode controls the behavior when a proxy address is
+	// given as an auth server address.
+	AuthServerAddressMode config.AuthServerAddressMode
 
 	// Identity that will provide the TLS and SSH credentials.
 	Identity Identity
@@ -98,6 +131,9 @@ type Config struct {
 	// Logger to which log messages will be written.
 	Logger *slog.Logger
 
+	// Insecure controls whether we will skip TLS host verification.
+	Insecure bool
+
 	// Metrics will record gRPC client metrics.
 	Metrics *grpcprom.ClientMetrics
 }
@@ -105,7 +141,7 @@ type Config struct {
 // CheckAndSetDefaults checks whether required config options have been provided
 // and sets defaults.
 func (c *Config) CheckAndSetDefaults() error {
-	if err := c.Connection.Validate(); err != nil {
+	if err := c.Address.Validate(); err != nil {
 		return err
 	}
 	if c.Identity == nil {
@@ -128,13 +164,13 @@ func New(ctx context.Context, cfg Config) (*client.Client, error) {
 
 	// If the address is known to be a proxy, dial without testing the
 	// connection.
-	if cfg.Connection.AddressKind == connection.AddressKindProxy {
+	if cfg.Address.Kind == config.AddressKindProxy {
 		return dialViaProxy(ctx, cfg)
 	}
 
 	// If it is known to be an auth server (i.e. we do not support falling back
 	// to treating it as a proxy), dial without testing the connection.
-	if cfg.Connection.AuthServerAddressMode == connection.AuthServerMustBeAuthServer {
+	if cfg.AuthServerAddressMode == config.AuthServerMustBeAuthServer {
 		return dialDirectly(ctx, cfg)
 	}
 
@@ -154,7 +190,7 @@ func New(ctx context.Context, cfg Config) (*client.Client, error) {
 	if proxyErr == nil {
 		// Send a ping to test the connection.
 		if _, proxyErr = clt.Ping(ctx); proxyErr == nil {
-			if cfg.Connection.AuthServerAddressMode == connection.WarnIfAuthServerIsProxy {
+			if cfg.AuthServerAddressMode == config.WarnIfAuthServerIsProxy {
 				cfg.Logger.WarnContext(ctx,
 					"Support for providing a proxy address via the 'auth_server' configuration option or '--auth-server' flag is deprecated and will be removed in v19. Use 'proxy_server' or '--proxy-server' instead.",
 				)
@@ -186,7 +222,7 @@ func dialViaProxy(ctx context.Context, cfg Config) (*client.Client, error) {
 		Resolver:              cfg.Resolver,
 		ClientConfig:          sshConfig,
 		Log:                   cfg.Logger,
-		InsecureSkipTLSVerify: cfg.Connection.Insecure,
+		InsecureSkipTLSVerify: cfg.Insecure,
 		GetClusterCAs:         client.ClusterCAsFromCertPool(tlsConfig.RootCAs),
 	})
 	if err != nil {
@@ -201,7 +237,7 @@ func dialViaProxy(ctx context.Context, cfg Config) (*client.Client, error) {
 		Dialer:                   dialer,
 		DialOpts:                 dialOpts(cfg),
 		CircuitBreakerConfig:     circuitBreakerConfig(),
-		InsecureAddressDiscovery: cfg.Connection.Insecure,
+		InsecureAddressDiscovery: cfg.Insecure,
 	})
 }
 
@@ -212,13 +248,13 @@ func dialDirectly(ctx context.Context, cfg Config) (*client.Client, error) {
 	}
 	return client.New(ctx, client.Config{
 		DialInBackground: true,
-		Addrs:            []string{cfg.Connection.Address},
+		Addrs:            []string{cfg.Address.Addr},
 		Credentials: []client.Credentials{
 			client.LoadTLS(tlsConfig),
 		},
 		DialOpts:                 dialOpts(cfg),
 		CircuitBreakerConfig:     circuitBreakerConfig(),
-		InsecureAddressDiscovery: cfg.Connection.Insecure,
+		InsecureAddressDiscovery: cfg.Insecure,
 	})
 }
 

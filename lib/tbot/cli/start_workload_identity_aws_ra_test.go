@@ -22,9 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/config"
-	"github.com/gravitational/teleport/lib/tbot/services/awsra"
 )
 
 func TestWorkloadIdentityAWSRACommand(t *testing.T) {
@@ -50,10 +48,10 @@ func TestWorkloadIdentityAWSRACommand(t *testing.T) {
 				require.Len(t, cfg.Services, 1)
 
 				svc := cfg.Services[0]
-				wis, ok := svc.(*awsra.Config)
+				wis, ok := svc.(*config.WorkloadIdentityAWSRAService)
 				require.True(t, ok)
 
-				dir, ok := wis.Destination.(*destination.Directory)
+				dir, ok := wis.Destination.(*config.DestinationDirectory)
 				require.True(t, ok)
 				require.Equal(t, "/bar", dir.Path)
 
@@ -97,10 +95,10 @@ func TestWorkloadIdentityAWSRACommand(t *testing.T) {
 				require.Len(t, cfg.Services, 1)
 
 				svc := cfg.Services[0]
-				wis, ok := svc.(*awsra.Config)
+				wis, ok := svc.(*config.WorkloadIdentityAWSRAService)
 				require.True(t, ok)
 
-				dir, ok := wis.Destination.(*destination.Directory)
+				dir, ok := wis.Destination.(*config.DestinationDirectory)
 				require.True(t, ok)
 				require.Equal(t, "/bar", dir.Path)
 

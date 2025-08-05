@@ -24,6 +24,7 @@ import (
 	"encoding/pem"
 	"log/slog"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -34,14 +35,12 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"go.opentelemetry.io/otel"
 
-	"github.com/gravitational/teleport"
 	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	trustv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/trust/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/keys"
 	"github.com/gravitational/teleport/lib/jwt"
 	"github.com/gravitational/teleport/lib/services"
-	"github.com/gravitational/teleport/lib/tbot/bot"
 	"github.com/gravitational/teleport/lib/tbot/readyz"
 )
 
@@ -205,62 +204,6 @@ type TrustBundleCacheConfig struct {
 	StatusReporter     readyz.Reporter
 }
 
-// TrustBundleCacheFacade wraps a TrustBundleCache to provide lazy initialization
-// using its BuildService method. It allows you to create a cache and pass it to
-// service builders before it has been initialized by running the bot.
-type TrustBundleCacheFacade struct {
-	mu          sync.Mutex
-	ready       chan struct{}
-	bundleCache *TrustBundleCache
-}
-
-// NewTrustBundleCacheFacade creates a new TrustBundleCacheFacade.
-func NewTrustBundleCacheFacade() *TrustBundleCacheFacade {
-	return &TrustBundleCacheFacade{ready: make(chan struct{})}
-}
-
-// BuildService implements bot.ServiceBuilder to build the TrustBundleCache once
-// when the bot starts up.
-func (f *TrustBundleCacheFacade) BuildService(deps bot.ServiceDependencies) (bot.Service, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if f.bundleCache == nil {
-		var err error
-		f.bundleCache, err = NewTrustBundleCache(TrustBundleCacheConfig{
-			FederationClient:   deps.Client.SPIFFEFederationServiceClient(),
-			TrustClient:        deps.Client.TrustClient(),
-			EventsClient:       deps.Client,
-			ClusterName:        deps.BotIdentity().ClusterName,
-			BotIdentityReadyCh: deps.BotIdentityReadyCh,
-			Logger: deps.Logger.With(
-				teleport.ComponentKey,
-				teleport.Component(teleport.ComponentTBot, "spiffe-trust-bundle-cache"),
-			),
-			StatusReporter: deps.StatusRegistry.AddService("spiffe-trust-bundle-cache"),
-		})
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		close(f.ready)
-	}
-
-	return f.bundleCache, nil
-}
-
-func (f *TrustBundleCacheFacade) GetBundleSet(ctx context.Context) (*BundleSet, error) {
-	select {
-	case <-f.ready:
-		f.mu.Lock()
-		cache := f.bundleCache
-		f.mu.Unlock()
-
-		return cache.GetBundleSet(ctx)
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
 // NewTrustBundleCache creates a new TrustBundleCache.
 func NewTrustBundleCache(cfg TrustBundleCacheConfig) (*TrustBundleCache, error) {
 	switch {
@@ -337,6 +280,10 @@ func (m *TrustBundleCache) Run(ctx context.Context) error {
 
 func (m *TrustBundleCache) watch(ctx context.Context) error {
 	watcher, err := m.eventsClient.NewWatcher(ctx, types.Watch{
+		// AllowPartialSuccess is set to true to account for the possibility that
+		// the Auth Server is too old to support the SPIFFEFederation resource.
+		// TODO(noah): DELETE IN V17.0.0
+		AllowPartialSuccess: true,
 		Kinds: []types.WatchKind{
 			{
 				// Only watch our local cert authority, we rely on the
@@ -366,12 +313,38 @@ func (m *TrustBundleCache) watch(ctx context.Context) error {
 		}
 	}()
 
+	authSupportsSPIFFEFederation := false
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case event := <-watcher.Events():
 		if event.Type != types.OpInit {
 			return trace.BadParameter("unexpected event type: %v", event.Type)
+		}
+
+		// Check whether the SPIFFEFederation kind was successfully watched.
+		// If not, we can assume that the Auth Server is too old and disable
+		// other functionality related to SPIFFEFederations.
+		// TODO(noah): DELETE IN V17.0.0
+		watchStatus, ok := event.Resource.(types.WatchStatus)
+		if !ok {
+			return trace.BadParameter(
+				"expected WatchStatus in Init event, got %T", event.Resource,
+			)
+		}
+		authSupportsSPIFFEFederation = slices.ContainsFunc(watchStatus.GetKinds(), func(kind types.WatchKind) bool {
+			return kind.Kind == types.KindSPIFFEFederation
+		})
+		if authSupportsSPIFFEFederation {
+			m.logger.DebugContext(
+				ctx,
+				"Initialization indicates auth server support for SPIFFEFederation resource",
+			)
+		} else {
+			m.logger.WarnContext(
+				ctx,
+				"Initialization indicates the auth server does not support the SPIFFEFederation resource. You will need to upgrade your Auth Server if you wish to use Workload Identity Federation features",
+			)
 		}
 	case <-watcher.Done():
 		return trace.Wrap(watcher.Error(), "watcher closed before initialization")
@@ -386,7 +359,7 @@ func (m *TrustBundleCache) watch(ctx context.Context) error {
 		m.logger,
 		m.federationClient,
 		m.trustClient,
-		true,
+		authSupportsSPIFFEFederation,
 		m.clusterName,
 	)
 	if err != nil {
@@ -554,7 +527,7 @@ func (m *TrustBundleCache) processEvent(ctx context.Context, event types.Event) 
 			bundleSet.Local = bundle
 			m.setBundleSet(bundleSet)
 		case types.KindSPIFFEFederation:
-			r153, ok := event.Resource.(types.Resource153UnwrapperT[*machineidv1pb.SPIFFEFederation])
+			r153, ok := event.Resource.(types.Resource153Unwrapper)
 			if !ok {
 				log.WarnContext(
 					ctx,
@@ -563,7 +536,15 @@ func (m *TrustBundleCache) processEvent(ctx context.Context, event types.Event) 
 				)
 				return
 			}
-			federation := r153.UnwrapT()
+			federation, ok := r153.Unwrap().(*machineidv1pb.SPIFFEFederation)
+			if !ok {
+				log.WarnContext(
+					ctx,
+					"Event did not contain expected type",
+					"got", reflect.TypeOf(event.Resource),
+				)
+				return
+			}
 			log.DebugContext(
 				ctx,
 				"Processing update for federated trust bundle",
@@ -673,6 +654,11 @@ func listAllSPIFFEFederations(
 			PageToken: token,
 		})
 		if err != nil {
+			// Support auth server being too old.
+			// TODO(noah): DELETE IN V17.0.0
+			if trace.IsNotImplemented(err) {
+				return []*machineidv1pb.SPIFFEFederation{}, nil
+			}
 			return nil, trace.Wrap(err, "listing SPIFFEFederations")
 		}
 		spiffeFeds = append(spiffeFeds, res.SpiffeFederations...)

@@ -32,7 +32,6 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/events"
 	libevents "github.com/gravitational/teleport/lib/events"
-	"github.com/gravitational/teleport/lib/reversetunnel"
 	"github.com/gravitational/teleport/lib/srv/desktop/tdp"
 	"github.com/gravitational/teleport/lib/tlsca"
 	logutils "github.com/gravitational/teleport/lib/utils/log"
@@ -75,8 +74,7 @@ func setup(desktop types.WindowsDesktop) (*tlsca.Identity, *desktopSessionAudito
 			Heartbeat: HeartbeatConfig{
 				HostUUID: "test-host-id",
 			},
-			Clock:                clockwork.NewFakeClockAt(startTime),
-			ConnectedProxyGetter: reversetunnel.NewConnectedProxyGetter(),
+			Clock: clockwork.NewFakeClockAt(startTime),
 		},
 		auditCache: newSharedDirectoryAuditCache(),
 	}
@@ -174,7 +172,7 @@ func TestSessionEndEvent(t *testing.T) {
 
 	id, audit := setup(testDesktop)
 
-	audit.clock.(*clockwork.FakeClock).Advance(30 * time.Second)
+	audit.clock.(clockwork.FakeClock).Advance(30 * time.Second)
 
 	endEvent := audit.makeSessionEnd(true)
 
@@ -595,7 +593,7 @@ func fillReadRequestCache(cache *sharedDirectoryAuditCache, did directoryID) {
 	cache.Lock()
 	defer cache.Unlock()
 
-	for i := range maxAuditCacheItems {
+	for i := 0; i < maxAuditCacheItems; i++ {
 		cache.readRequestCache[completionID(i)] = readRequestInfo{
 			directoryID: did,
 		}

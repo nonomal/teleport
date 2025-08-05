@@ -130,16 +130,9 @@ describe('invite collaborators integration', () => {
     enrollButton.click();
     expect(startMock.mock.calls).toHaveLength(1);
 
-    // Ensure the passed in component for InviteCollaborators renders.
-    render(
-      <MemoryRouter>
-        <InfoGuidePanelProvider>
-          <ContextProvider ctx={ctx}>
-            <Users {...props} inviteCollaboratorsOpen={true} />
-          </ContextProvider>
-        </InfoGuidePanelProvider>
-      </MemoryRouter>
-    );
+    // This will display regardless since the dialog display is managed by the
+    // dialog itself, and our mock above is trivial, but we can make sure it
+    // renders.
     expect(screen.getByTestId('invite-collaborators')).toBeInTheDocument();
   });
 });
@@ -233,6 +226,32 @@ describe('email password reset integration', () => {
 
     expect(screen.getByText('Reset User Authentication?')).toBeInTheDocument();
     expect(screen.queryByText('New Reset UI')).not.toBeInTheDocument();
+  });
+
+  test('displays the email-based UI when configured', async () => {
+    props = {
+      ...props,
+      InviteCollaborators: () => (
+        <div data-testid="new-reset-ui">New Reset UI</div>
+      ),
+    };
+
+    render(
+      <MemoryRouter>
+        <InfoGuidePanelProvider>
+          <ContextProvider ctx={ctx}>
+            <Users {...props} />
+          </ContextProvider>
+        </InfoGuidePanelProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('New Reset UI')).toBeInTheDocument();
+
+    // This will display regardless since the dialog display is managed by the
+    // dialog itself, and our mock above is trivial, but we can make sure it
+    // renders.
+    expect(screen.getByTestId('new-reset-ui')).toBeInTheDocument();
   });
 });
 

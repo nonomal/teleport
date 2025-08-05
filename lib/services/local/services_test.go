@@ -29,11 +29,11 @@ import (
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/backend/memory"
 	"github.com/gravitational/teleport/lib/services/suite"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 func TestMain(m *testing.M) {
-	logtest.InitLogger(testing.Verbose)
+	utils.InitLoggerForTests()
 	os.Exit(m.Run())
 }
 
@@ -73,7 +73,7 @@ func setupServicesContext(ctx context.Context, t *testing.T) *servicesContext {
 		WebS:           identityService,
 		Access:         NewAccessService(tt.bk),
 		EventsS:        eventsService,
-		ChangesC:       make(chan any),
+		ChangesC:       make(chan interface{}),
 		ConfigS:        configService,
 		LocalConfigS:   configService,
 		RestrictionsS:  NewRestrictionsService(tt.bk),
@@ -93,6 +93,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("TestUserCACRUD", tt.suite.CertAuthCRUD)
 	t.Run("TestServerCRUD", tt.suite.ServerCRUD)
 	t.Run("TestAppServerCRUD", tt.suite.AppServerCRUD)
+	t.Run("TestReverseTunnelsCRUD", tt.suite.ReverseTunnelsCRUD)
 	t.Run("TestUsersCRUD", tt.suite.UsersCRUD)
 	t.Run("TestUsersExpiry", tt.suite.UsersExpiry)
 	t.Run("TestLoginAttempts", tt.suite.LoginAttempts)

@@ -24,8 +24,6 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/types"
-	apiutils "github.com/gravitational/teleport/api/utils"
-	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -38,51 +36,13 @@ func LockInForceAccessDenied(lock types.Lock) error {
 	if len(msg) > 0 {
 		s += ": " + msg
 	}
-	err := trace.AccessDenied("%s", s)
+	err := trace.AccessDenied(s)
 	return trace.WithField(err, "lock-in-force", lock)
 }
 
 // StrictLockingModeAccessDenied is an AccessDenied error returned when strict
 // locking mode causes all interactions to be blocked.
 var StrictLockingModeAccessDenied = trace.AccessDenied("preventive lock-out due to local lock view becoming unreliable")
-
-// SSHAccessLockTargets computes the full set of lock targets related to ssh access.
-func SSHAccessLockTargets(localClusterName, serverID, osLogin string, accessInfo *AccessInfo, unmappedIdentity *sshca.Identity) []types.LockTarget {
-	// ssh access lock targets are currently constructed identically to proxying lock targets,
-	// except that the os login associated with the ssh access attempt is also locked.
-	return append(ProxyingLockTargets(localClusterName, serverID, accessInfo, unmappedIdentity), types.LockTarget{Login: osLogin})
-}
-
-// ProxyingLockTargets computes the full set of lock targets related to teleport proxying.
-func ProxyingLockTargets(localClusterName, serverID string, accessInfo *AccessInfo, unmappedIdentity *sshca.Identity) []types.LockTarget {
-	lockTargets := []types.LockTarget{
-		{User: accessInfo.Username},
-		{ServerID: serverID},
-		{ServerID: utils.HostFQDN(serverID, localClusterName)},
-	}
-	if mfaDevice := unmappedIdentity.MFAVerified; mfaDevice != "" {
-		lockTargets = append(lockTargets, types.LockTarget{MFADevice: mfaDevice})
-	}
-	if trustedDevice := unmappedIdentity.DeviceID; trustedDevice != "" {
-		lockTargets = append(lockTargets, types.LockTarget{Device: trustedDevice})
-	}
-	if joinToken := unmappedIdentity.JoinToken; joinToken != "" {
-		lockTargets = append(lockTargets, types.LockTarget{JoinToken: joinToken})
-	}
-	if botInstanceID := unmappedIdentity.BotInstanceID; botInstanceID != "" {
-		lockTargets = append(lockTargets, types.LockTarget{BotInstanceID: botInstanceID})
-	}
-	roles := apiutils.Deduplicate(append(accessInfo.Roles, unmappedIdentity.Roles...))
-	lockTargets = append(lockTargets, RolesToLockTargets(roles)...)
-	lockTargets = append(lockTargets, AccessRequestsToLockTargets(unmappedIdentity.ActiveRequests)...)
-	return lockTargets
-}
-
-// GitForwardingLockTargets computes the full set of lock targets related to git forwarding.
-func GitForwardingLockTargets(localClusterName, serverID string, accessInfo *AccessInfo, unmappedIdentity *sshca.Identity) []types.LockTarget {
-	// git forwarding lock targets are currently constructed identically to proxying lock targets.
-	return ProxyingLockTargets(localClusterName, serverID, accessInfo, unmappedIdentity)
-}
 
 // LockTargetsFromTLSIdentity infers a list of LockTargets from tlsca.Identity.
 func LockTargetsFromTLSIdentity(id tlsca.Identity) []types.LockTarget {
@@ -92,12 +52,6 @@ func LockTargetsFromTLSIdentity(id tlsca.Identity) []types.LockTarget {
 	}
 	if id.DeviceExtensions.DeviceID != "" {
 		lockTargets = append(lockTargets, types.LockTarget{Device: id.DeviceExtensions.DeviceID})
-	}
-	if id.JoinToken != "" {
-		lockTargets = append(lockTargets, types.LockTarget{JoinToken: id.JoinToken})
-	}
-	if id.BotInstanceID != "" {
-		lockTargets = append(lockTargets, types.LockTarget{BotInstanceID: id.BotInstanceID})
 	}
 	lockTargets = append(lockTargets, AccessRequestsToLockTargets(id.ActiveRequests)...)
 	return lockTargets
@@ -131,7 +85,7 @@ func UnmarshalLock(bytes []byte, opts ...MarshalOption) (types.Lock, error) {
 
 	var lock types.LockV2
 	if err := utils.FastUnmarshal(bytes, &lock); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	if err := lock.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)

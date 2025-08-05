@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/lib/tbot/config"
-	"github.com/gravitational/teleport/lib/tbot/services/application"
 )
 
 // TestApplicationTunnelCommand tests that the ApplicationTunnelCommand
@@ -47,7 +46,7 @@ func TestApplicationTunnelCommand(t *testing.T) {
 
 				// It must configure an app tunnel service
 				svc := cfg.Services[0]
-				appSvc, ok := svc.(*application.TunnelConfig)
+				appSvc, ok := svc.(*config.ApplicationTunnelService)
 				require.True(t, ok)
 
 				require.Equal(t, "foo", appSvc.AppName)

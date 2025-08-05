@@ -21,11 +21,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"iter"
-	"net"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -44,8 +41,6 @@ type AppGetter interface {
 	GetApps(context.Context) ([]types.Application, error)
 	// ListApps returns a page of application resources.
 	ListApps(ctx context.Context, limit int, startKey string) ([]types.Application, string, error)
-	// Apps returns application resources within the range [start, end).
-	Apps(ctx context.Context, start, end string) iter.Seq2[types.Application, error]
 	// GetApp returns the specified application resource.
 	GetApp(ctx context.Context, name string) (types.Application, error)
 }
@@ -99,7 +94,7 @@ func UnmarshalApp(data []byte, opts ...MarshalOption) (types.Application, error)
 	case types.V3:
 		var app types.AppV3
 		if err := utils.FastUnmarshal(data, &app); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := app.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
@@ -151,7 +146,7 @@ func UnmarshalAppServer(data []byte, opts ...MarshalOption) (types.AppServer, er
 	case types.V3:
 		var s types.AppServerV3
 		if err := utils.FastUnmarshal(data, &s); err != nil {
-			return nil, trace.BadParameter("%s", err)
+			return nil, trace.BadParameter(err.Error())
 		}
 		if err := s.CheckAndSetDefaults(); err != nil {
 			return nil, trace.Wrap(err)
@@ -220,7 +215,7 @@ func GetServiceFQDN(service corev1.Service) string {
 func buildAppURI(protocol, serviceFQDN, path string, port int32) string {
 	return (&url.URL{
 		Scheme: protocol,
-		Host:   net.JoinHostPort(serviceFQDN, strconv.Itoa(int(port))),
+		Host:   fmt.Sprintf("%s:%d", serviceFQDN, port),
 		Path:   path,
 	}).String()
 }

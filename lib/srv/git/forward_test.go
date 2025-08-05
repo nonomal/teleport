@@ -51,11 +51,10 @@ import (
 	"github.com/gravitational/teleport/lib/sshca"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func TestMain(m *testing.M) {
-	logtest.InitLogger(testing.Verbose)
+	utils.InitLoggerForTests()
 	os.Exit(m.Run())
 }
 
@@ -205,10 +204,12 @@ func TestForwardServer(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := t.Context()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			mockEmitter := &eventstest.MockRecorderEmitter{}
 			mockGitService := newMockGitHostingService(t, caSigner)
@@ -416,7 +417,7 @@ type mockAccessPoint struct {
 	services.GitServers
 }
 
-func (m mockAccessPoint) GetClusterName(ctx context.Context) (types.ClusterName, error) {
+func (m mockAccessPoint) GetClusterName(...services.MarshalOption) (types.ClusterName, error) {
 	return types.NewClusterName(types.ClusterNameSpecV2{
 		ClusterName: "git.test",
 		ClusterID:   "git.test",

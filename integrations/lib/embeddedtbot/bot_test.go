@@ -33,22 +33,19 @@ import (
 	"github.com/gravitational/teleport/integration/helpers"
 	"github.com/gravitational/teleport/integrations/operator/controllers/resources/testlib"
 	"github.com/gravitational/teleport/lib/service/servicecfg"
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
-	"github.com/gravitational/teleport/lib/tbot/bot/onboarding"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/tbot/config"
+	"github.com/gravitational/teleport/lib/utils"
 )
 
 func TestBotJoinAuth(t *testing.T) {
 	// Configure and start Teleport server
 	clusterName := "root.example.com"
 	ctx := context.Background()
-	logger := logtest.NewLogger()
 	teleportServer := helpers.NewInstance(t, helpers.InstanceConfig{
 		ClusterName: clusterName,
 		HostID:      uuid.New().String(),
 		NodeName:    helpers.Loopback,
-		Logger:      logger,
+		Log:         utils.NewLoggerForTests(),
 	})
 
 	rcConf := servicecfg.MakeDefaultConfig()
@@ -121,20 +118,20 @@ func TestBotJoinAuth(t *testing.T) {
 	authAddr, err := teleportServer.Process.AuthAddr()
 	require.NoError(t, err)
 	botConfig := &BotConfig{
-		Onboarding: onboarding.Config{
+		Onboarding: config.OnboardingConfig{
 			TokenValue: tokenName,
 			JoinMethod: types.JoinMethodToken,
 		},
 		AuthServer:            authAddr.Addr,
-		AuthServerAddressMode: connection.AllowProxyAsAuthServer,
-		CredentialLifetime: bot.CredentialLifetime{
+		AuthServerAddressMode: config.AllowProxyAsAuthServer,
+		CredentialLifetime: config.CredentialLifetime{
 			TTL:             defaultCertificateTTL,
 			RenewalInterval: defaultRenewalInterval,
 		},
 		Oneshot: true,
 		Debug:   true,
 	}
-	bot, err := New(botConfig, logger)
+	bot, err := New(botConfig)
 	require.NoError(t, err)
 	pong, err := bot.Preflight(ctx)
 	require.NoError(t, err)

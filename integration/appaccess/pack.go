@@ -29,7 +29,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"testing"
 	"time"
 
@@ -50,6 +49,7 @@ import (
 	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/events"
+	"github.com/gravitational/teleport/lib/httplib/csrf"
 	"github.com/gravitational/teleport/lib/httplib/reverseproxy"
 	"github.com/gravitational/teleport/lib/reversetunnelclient"
 	"github.com/gravitational/teleport/lib/service"
@@ -59,8 +59,6 @@ import (
 	alpncommon "github.com/gravitational/teleport/lib/srv/alpnproxy/common"
 	"github.com/gravitational/teleport/lib/srv/app/common"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
-	sliceutils "github.com/gravitational/teleport/lib/utils/slices"
 	"github.com/gravitational/teleport/lib/web"
 	"github.com/gravitational/teleport/lib/web/app"
 	websession "github.com/gravitational/teleport/lib/web/session"
@@ -309,9 +307,15 @@ func (p *Pack) initWebSession(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewBuffer(csReq))
 	require.NoError(t, err)
 
-	// Set Content-Type header, otherwise Teleport's CSRF protection will
-	// reject the request.
+	// Attach CSRF token in cookie and header.
+	csrfToken, err := utils.CryptoRandomHex(32)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{
+		Name:  csrf.CookieName,
+		Value: csrfToken,
+	})
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set(csrf.HeaderName, csrfToken)
 
 	// Issue request.
 	client := &http.Client{
@@ -757,12 +761,15 @@ func (p *Pack) waitForLogout(appCookies []*http.Cookie) (int, error) {
 }
 
 func (p *Pack) startRootAppServers(t *testing.T, count int, opts AppTestOptions) []*service.TeleportProcess {
+	log := utils.NewLoggerForTests()
+
 	configs := make([]*servicecfg.Config, count)
 
-	for i := range count {
+	for i := 0; i < count; i++ {
 		raConf := servicecfg.MakeDefaultConfig()
 		raConf.Clock = opts.Clock
-		raConf.Logger = logtest.NewLogger()
+		raConf.Console = nil
+		raConf.Log = log
 		raConf.DataDir = t.TempDir()
 		raConf.SetToken("static-token-value")
 		raConf.SetAuthServerAddress(utils.NetAddr{
@@ -773,7 +780,6 @@ func (p *Pack) startRootAppServers(t *testing.T, count int, opts AppTestOptions)
 		raConf.Proxy.Enabled = false
 		raConf.SSH.Enabled = false
 		raConf.Apps.Enabled = true
-		raConf.Apps.MCPDemoServer = true
 		raConf.CircuitBreakerConfig = breaker.NoopBreakerConfig()
 		raConf.Apps.MonitorCloseChannel = opts.MonitorCloseChannel
 		raConf.Apps.Apps = append([]servicecfg.App{
@@ -927,12 +933,14 @@ func waitForAppServer(t *testing.T, tunnel reversetunnelclient.Server, name stri
 }
 
 func (p *Pack) startLeafAppServers(t *testing.T, count int, opts AppTestOptions) []*service.TeleportProcess {
+	log := utils.NewLoggerForTests()
 	configs := make([]*servicecfg.Config, count)
 
-	for i := range count {
+	for i := 0; i < count; i++ {
 		laConf := servicecfg.MakeDefaultConfig()
 		laConf.Clock = opts.Clock
-		laConf.Logger = logtest.NewLogger()
+		laConf.Console = nil
+		laConf.Log = log
 		laConf.DataDir = t.TempDir()
 		laConf.SetToken("static-token-value")
 		laConf.SetAuthServerAddress(utils.NetAddr{
@@ -1076,12 +1084,12 @@ func waitForAppRegInRemoteSiteCache(t *testing.T, tunnel reversetunnelclient.Ser
 		apps, err := ap.GetApplicationServers(context.Background(), apidefaults.Namespace)
 		assert.NoError(t, err)
 
-		wantNames := sliceutils.Map(cfgApps, func(app servicecfg.App) string {
-			return app.Name
-		})
-		assert.Subset(t,
-			slices.Collect(types.ResourceNames(apps)),
-			wantNames,
-		)
+		counter := 0
+		for _, v := range apps {
+			if v.GetHostID() == hostUUID {
+				counter++
+			}
+		}
+		assert.Len(t, cfgApps, counter)
 	}, time.Minute*2, time.Millisecond*200)
 }

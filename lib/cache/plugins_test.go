@@ -81,7 +81,7 @@ func TestPlugin(t *testing.T) {
 				out, err := stream.Collect(clientutils.Resources(ctx, fn))
 				return out, trace.Wrap(err)
 			},
-			cacheList: func(ctx context.Context, pageSize int) ([]types.Plugin, error) {
+			cacheList: func(ctx context.Context) ([]types.Plugin, error) {
 				return p.cache.GetPlugins(ctx, false)
 			},
 			update: func(ctx context.Context, item types.Plugin) error {
@@ -112,7 +112,7 @@ func TestPlugin(t *testing.T) {
 			cacheGet: func(ctx context.Context, name string) (types.Plugin, error) {
 				return p.cache.GetPlugin(ctx, name, false)
 			},
-			cacheList: func(ctx context.Context, pageSize int) ([]types.Plugin, error) {
+			cacheList: func(ctx context.Context) ([]types.Plugin, error) {
 				fn := func(ctx context.Context, pageSize int, token string) ([]types.Plugin, string, error) {
 					return p.cache.ListPlugins(ctx, pageSize, token, false)
 				}
@@ -147,7 +147,7 @@ func TestPlugin(t *testing.T) {
 				out, err := stream.Collect(clientutils.Resources(ctx, fn))
 				return out, trace.Wrap(err)
 			},
-			cacheList: func(ctx context.Context, pageSize int) ([]types.Plugin, error) {
+			cacheList: func(ctx context.Context) ([]types.Plugin, error) {
 				fn := func(ctx context.Context, pageSize int, token string) ([]types.Plugin, string, error) {
 					return p.cache.ListPlugins(ctx, pageSize, token, true)
 				}

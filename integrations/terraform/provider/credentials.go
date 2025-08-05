@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"strings"
 	"text/template"
 	"time"
@@ -34,9 +33,7 @@ import (
 	"github.com/gravitational/teleport/api/constants"
 	apitypes "github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/integrations/lib/embeddedtbot"
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/connection"
-	"github.com/gravitational/teleport/lib/tbot/bot/onboarding"
+	tbotconfig "github.com/gravitational/teleport/lib/tbot/config"
 )
 
 var supportedCredentialSources = CredentialSources{
@@ -518,26 +515,25 @@ See https://goteleport.com/docs/reference/join-methods for more details.`)
 	}
 	botConfig := &embeddedtbot.BotConfig{
 		AuthServer:            addr,
-		AuthServerAddressMode: connection.AllowProxyAsAuthServer,
-		Onboarding: onboarding.Config{
+		AuthServerAddressMode: tbotconfig.AllowProxyAsAuthServer,
+		Onboarding: tbotconfig.OnboardingConfig{
 			TokenValue: joinToken,
 			CAPath:     caPath,
 			JoinMethod: apitypes.JoinMethod(joinMethod),
-			Terraform: onboarding.TerraformOnboardingConfig{
+			Terraform: tbotconfig.TerraformOnboardingConfig{
 				AudienceTag: audienceTag,
 			},
-			Gitlab: onboarding.GitlabOnboardingConfig{
+			Gitlab: tbotconfig.GitlabOnboardingConfig{
 				TokenEnvVarName: gitlabIDTokenEnvVar,
 			},
 		},
-		CredentialLifetime: bot.CredentialLifetime{
+		CredentialLifetime: tbotconfig.CredentialLifetime{
 			TTL:             time.Hour,
 			RenewalInterval: 20 * time.Minute,
 		},
 		Insecure: insecure,
 	}
-	// slog default logger has been configured during the provider init.
-	bot, err := embeddedtbot.New(botConfig, slog.Default())
+	bot, err := embeddedtbot.New(botConfig)
 	if err != nil {
 		return nil, trace.Wrap(err, "Failed to create bot configuration, this is a provider bug, please open a GitHub issue.")
 	}

@@ -169,6 +169,8 @@ func TestTerraformJoin(t *testing.T) {
 
 func TestTerraformJoinViaProxy(t *testing.T) {
 	require.NoError(t, os.Setenv("TF_ACC", "true"))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
 	// Test setup: start a full Teleport process including a proxy.
 	process := testenv.MakeTestServer(t)
@@ -176,7 +178,7 @@ func TestTerraformJoinViaProxy(t *testing.T) {
 
 	var err error
 	// Test setup: get the terraform role
-	tfRole, err := clt.GetRole(t.Context(), teleport.PresetTerraformProviderRoleName)
+	tfRole, err := clt.GetRole(ctx, teleport.PresetTerraformProviderRoleName)
 	require.NoError(t, err)
 
 	// Test setup: create a fake Kubernetes signer that will allow us to use the kubernetes/jwks join method
@@ -212,7 +214,7 @@ func TestTerraformJoinViaProxy(t *testing.T) {
 			},
 		})
 	require.NoError(t, err)
-	err = clt.CreateToken(t.Context(), token)
+	err = clt.CreateToken(ctx, token)
 	require.NoError(t, err)
 
 	bot := &machineidv1.Bot{
@@ -225,13 +227,13 @@ func TestTerraformJoinViaProxy(t *testing.T) {
 			Roles: []string{tfRole.GetName()},
 		},
 	}
-	_, err = clt.BotServiceClient().CreateBot(t.Context(), &machineidv1.CreateBotRequest{Bot: bot})
+	_, err = clt.BotServiceClient().CreateBot(ctx, &machineidv1.CreateBotRequest{Bot: bot})
 	require.NoError(t, err)
 
 	// Test setup: sign a Kube JWT for our bot to join the cluster
 	// We sign the token, write it to a temporary file, and point the embedded tbot to it
 	// with an environment variable.
-	pong, err := clt.Ping(t.Context())
+	pong, err := clt.Ping(ctx)
 	require.NoError(t, err)
 	clusterName := pong.ClusterName
 	jwt, err := signer.SignServiceAccountJWT("pod-name-doesnt-matter", fakeNamespace, fakeServiceAccount, clusterName)

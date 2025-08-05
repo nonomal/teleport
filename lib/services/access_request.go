@@ -31,7 +31,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/accessrequest"
@@ -42,7 +41,6 @@ import (
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 	"github.com/gravitational/teleport/lib/utils/parse"
 	"github.com/gravitational/teleport/lib/utils/typical"
 )
@@ -93,15 +91,15 @@ func ValidateAccessRequest(ar types.AccessRequest) error {
 
 // ClusterGetter provides access to the local cluster
 type ClusterGetter interface {
-	ClusterNameGetter
+	// GetClusterName returns the local cluster name
+	GetClusterName(opts ...MarshalOption) (types.ClusterName, error)
 	// GetRemoteCluster returns a remote cluster by name
 	GetRemoteCluster(ctx context.Context, clusterName string) (types.RemoteCluster, error)
 }
 
 // ValidateAccessRequestClusterNames checks that the clusters in the access request exist
 func ValidateAccessRequestClusterNames(cg ClusterGetter, ar types.AccessRequest) error {
-	ctx := context.TODO()
-	localClusterName, err := cg.GetClusterName(ctx)
+	localClusterName, err := cg.GetClusterName()
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -113,7 +111,7 @@ func ValidateAccessRequestClusterNames(cg ClusterGetter, ar types.AccessRequest)
 		if resourceID.ClusterName == localClusterName.GetClusterName() {
 			continue
 		}
-		_, err := cg.GetRemoteCluster(ctx, resourceID.ClusterName)
+		_, err := cg.GetRemoteCluster(context.TODO(), resourceID.ClusterName)
 		if err != nil && !trace.IsNotFound(err) {
 			return trace.Wrap(err, "failed to fetch remote cluster %q", resourceID.ClusterName)
 		}
@@ -188,7 +186,7 @@ func shouldFilterRequestableRolesByResource(a RequestValidatorGetter, req types.
 	if !req.FilterRequestableRolesByResource {
 		return false, nil
 	}
-	currentCluster, err := a.GetClusterName(context.TODO())
+	currentCluster, err := a.GetClusterName()
 	if err != nil {
 		return false, trace.Wrap(err)
 	}
@@ -508,7 +506,7 @@ func checkReviewCompat(req types.AccessRequest, rev types.AccessReview) error {
 	// user must not have previously reviewed this request
 	for _, existingReview := range req.GetReviews() {
 		if existingReview.Author == rev.Author {
-			return trace.AlreadyExists("user %q has already reviewed this request", rev.Author)
+			return trace.AccessDenied("user %q has already reviewed this request", rev.Author)
 		}
 	}
 
@@ -767,7 +765,7 @@ type RequestValidatorGetter interface {
 	RoleGetter
 	client.ListResourcesClient
 	GetRoles(ctx context.Context) ([]types.Role, error)
-	GetClusterName(ctx context.Context) (types.ClusterName, error)
+	GetClusterName(opts ...MarshalOption) (types.ClusterName, error)
 }
 
 // appendRoleMatchers constructs all role matchers for a given
@@ -1203,7 +1201,7 @@ func (m *requestValidator) validate(ctx context.Context, req types.AccessRequest
 			return trace.Wrap(err)
 		}
 		if required {
-			return trace.BadParameter("%s", explanation)
+			return trace.BadParameter(explanation)
 		}
 	}
 
@@ -1562,7 +1560,7 @@ func (m *requestValidator) getRequestableRoles(ctx context.Context, identity tls
 		return nil, trace.Wrap(err)
 	}
 
-	cluster, err := m.getter.GetClusterName(ctx)
+	cluster, err := m.getter.GetClusterName()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -1657,11 +1655,10 @@ func (m *requestValidator) push(ctx context.Context, role types.Role) error {
 		}
 	}
 
-	// NOTE: Not using allow.KubernetesResources as we need to map older roles to new values.
-	setAllowRequestKubeResourceLookup(role.GetRequestKubernetesResources(types.Allow), allow.SearchAsRoles, m.kubernetesResource.allow)
+	setAllowRequestKubeResourceLookup(allow.KubernetesResources, allow.SearchAsRoles, m.kubernetesResource.allow)
 
-	if deniedKubeResources := role.GetRequestKubernetesResources(types.Deny); len(deniedKubeResources) > 0 {
-		m.kubernetesResource.deny = append(m.kubernetesResource.deny, deniedKubeResources...)
+	if len(deny.KubernetesResources) > 0 {
+		m.kubernetesResource.deny = append(m.kubernetesResource.deny, deny.KubernetesResources...)
 	}
 
 	m.roles.denyRequest, err = appendRoleMatchers(m.roles.denyRequest, deny.Roles, deny.ClaimsToRoles, m.userState.GetTraits())
@@ -1749,23 +1746,6 @@ func (m *requestValidator) setRolesForResourceRequest(ctx context.Context, req t
 	return nil
 }
 
-// requestResourcesToStrings formats the resource list as <kind>.<apiGroup>.
-// Removes wildcards if any.
-func requestResourcesToStrings(resources, denied []types.RequestKubernetesResource) []string {
-	strs := make([]string, 0, len(resources))
-	for _, resource := range resources {
-		str := resource.Kind
-		if resource.APIGroup != "" {
-			str += "." + resource.APIGroup
-		}
-		if resource.Kind == types.Wildcard && len(denied) > 0 {
-			str += "(- " + strings.Join(requestResourcesToStrings(denied, nil), ", ") + ")"
-		}
-		strs = append(strs, str)
-	}
-	return strs
-}
-
 // pruneRequestedRolesNotMatchingKubernetesResourceKinds will filter out the kubernetes kinds from the requested resource IDs (kube_cluster and its subresources)
 // disregarding whether it's leaf or root cluster request, and for each requested role, ensures that all requested kube resource kind are allowed by the role.
 // Roles not matching with every kind requested, will be pruned from the requested roles.
@@ -1774,12 +1754,10 @@ func requestResourcesToStrings(resources, denied []types.RequestKubernetesResour
 // lets user know which kinds are allowed for each requested roles.
 func (m *requestValidator) pruneRequestedRolesNotMatchingKubernetesResourceKinds(requestedResourceIDs []types.ResourceID, requestedRoles []string) ([]string, map[string][]string) {
 	// Filter for the kube_cluster and its subresource kinds.
-	requestedKubeKinds := map[gk]struct{}{}
+	requestedKubeKinds := make(map[string]struct{})
 	for _, resourceID := range requestedResourceIDs {
-		if resourceID.Kind == types.KindKubernetesCluster {
-			requestedKubeKinds[gk{kind: types.KindKubernetesCluster}] = struct{}{}
-		} else if slices.Contains(types.KubernetesResourcesKinds, resourceID.Kind) || strings.HasPrefix(resourceID.Kind, types.AccessRequestPrefixKindKube) {
-			requestedKubeKinds[normalizeKubernetesKind(resourceID.Kind)] = struct{}{}
+		if resourceID.Kind == types.KindKubernetesCluster || slices.Contains(types.KubernetesResourcesKinds, resourceID.Kind) {
+			requestedKubeKinds[resourceID.Kind] = struct{}{}
 		}
 	}
 
@@ -1787,12 +1765,12 @@ func (m *requestValidator) pruneRequestedRolesNotMatchingKubernetesResourceKinds
 		return requestedRoles, nil
 	}
 
-	goodRoles := map[string]struct{}{}
-	mappedRequestedRolesToAllowedKinds := map[string][]string{}
+	goodRoles := make(map[string]struct{})
+	mappedRequestedRolesToAllowedKinds := make(map[string][]string)
 	for _, requestedRoleName := range requestedRoles {
-		allowedKinds, deniedKinds := m.kubernetesResource.allow[requestedRoleName], m.kubernetesResource.deny
+		allowedKinds, deniedKinds := getKubeResourceKinds(m.kubernetesResource.allow[requestedRoleName]), getKubeResourceKinds(m.kubernetesResource.deny)
 
-		// If there is nothing in allowed nor deny, everything is allowed.
+		// Any resource is allowed.
 		if len(allowedKinds) == 0 && len(deniedKinds) == 0 {
 			goodRoles[requestedRoleName] = struct{}{}
 			continue
@@ -1800,63 +1778,28 @@ func (m *requestValidator) pruneRequestedRolesNotMatchingKubernetesResourceKinds
 
 		// All supported kube kinds are allowed when there was nothing configured.
 		if len(allowedKinds) == 0 {
-			allowedKinds = append(allowedKinds,
-				types.RequestKubernetesResource{Kind: types.Wildcard, APIGroup: types.Wildcard},
-			)
-			// If there is nothing in deny, also include kube_cluster.
-			if len(deniedKinds) == 0 {
-				allowedKinds = append(allowedKinds,
-					types.RequestKubernetesResource{Kind: types.KindKubernetesCluster},
-				)
-			}
+			allowedKinds = types.KubernetesResourcesKinds
+			allowedKinds = append(allowedKinds, types.KindKubernetesCluster)
 		}
 
-		allowedKinds = slices.DeleteFunc(allowedKinds, func(in types.RequestKubernetesResource) bool {
-			for _, elem := range deniedKinds {
-				if matchRequestKubernetesResources(gk{group: in.APIGroup, kind: in.Kind}, elem, types.Allow) {
-					return true
-				}
-			}
-			return false
-		})
+		// Filter out denied kinds from the allowed kinds
+		if len(deniedKinds) > 0 && len(allowedKinds) > 0 {
+			allowedKinds = getAllowedKubeResourceKinds(allowedKinds, deniedKinds)
+		}
 
-		// TODO(@creack): Consider removing this. We shouldn't disclose to the user what they could request when getting an access denied error.
-		//                Keeping existing behavior for now.
-		mappedRequestedRolesToAllowedKinds[requestedRoleName] = requestResourcesToStrings(allowedKinds, deniedKinds)
+		mappedRequestedRolesToAllowedKinds[requestedRoleName] = allowedKinds
 
-		// If we have any requested kinds that is either not allowed or that is denied, reject the role.
-		// TODO(@creack): Reconsider this, we may want to allow some kinds and deny others.
-		//                Keeping existing behavior for now.
-		filteredAllowedKinds := make([]types.RequestKubernetesResource, 0, len(requestedKubeKinds))
+		roleIsDenied := false
 		for requestedKubeKind := range requestedKubeKinds {
-			for _, k := range allowedKinds {
-				if matchRequestKubernetesResources(requestedKubeKind, k, types.Allow) {
-					filteredAllowedKinds = append(filteredAllowedKinds, types.RequestKubernetesResource{Kind: requestedKubeKind.kind, APIGroup: requestedKubeKind.group})
-					break
-				}
-			}
-		}
-		if len(filteredAllowedKinds) != len(requestedKubeKinds) {
-			// If we don't have as many allowed kinds as request, we reject the role.
-			continue
-		}
-
-		// If there is something to deny, make sure we reject 'namespace' and 'kube_cluster', as it would grant access to everything.
-		for requestedKubeKind := range requestedKubeKinds {
-			for _, k := range deniedKinds {
-				if requestedKubeKind.kind == types.KindKubernetesCluster || requestedKubeKind.kind == "namespaces" {
-					// We have a deny entry and the request is for a kube_cluster or namespaces, reject.
-					return nil, mappedRequestedRolesToAllowedKinds
-				}
-
-				if matchRequestKubernetesResources(requestedKubeKind, k, types.Deny) {
-					// If we have any requested kinds that is denied, reject all roles.
-					return nil, mappedRequestedRolesToAllowedKinds
-				}
+			if !slices.Contains(allowedKinds, requestedKubeKind) {
+				roleIsDenied = true
+				continue
 			}
 		}
 
-		goodRoles[requestedRoleName] = struct{}{}
+		if !roleIsDenied {
+			goodRoles[requestedRoleName] = struct{}{}
+		}
 	}
 
 	return slices.Collect(maps.Keys(goodRoles)), mappedRequestedRolesToAllowedKinds
@@ -2004,8 +1947,10 @@ func (m *annotationMatcher) matchesRequest(req types.AccessRequest) bool {
 		matchers = m.resourceRequestMatchers
 	}
 	for _, matcher := range matchers {
-		if slices.ContainsFunc(req.GetRoles(), matcher.Match) {
-			return true
+		for _, role := range req.GetRoles() {
+			if matcher.Match(role) {
+				return true
+			}
 		}
 	}
 	return false
@@ -2223,12 +2168,13 @@ func (m *requestValidator) pruneResourceRequestRoles(
 		return roles, nil
 	}
 
-	roles, mappedRequestedRolesToAllowedKinds := m.pruneRequestedRolesNotMatchingKubernetesResourceKinds(resourceIDs, roles)
+	var mappedRequestedRolesToAllowedKinds map[string][]string
+	roles, mappedRequestedRolesToAllowedKinds = m.pruneRequestedRolesNotMatchingKubernetesResourceKinds(resourceIDs, roles)
 	if len(roles) == 0 { // all roles got pruned from not matching every kube requested kind.
 		return nil, getInvalidKubeKindAccessRequestsError(mappedRequestedRolesToAllowedKinds, false /* requestedRoles */)
 	}
 
-	clusterNameResource, err := m.getter.GetClusterName(ctx)
+	clusterNameResource, err := m.getter.GetClusterName()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -2236,9 +2182,10 @@ func (m *requestValidator) pruneResourceRequestRoles(
 
 	for _, resourceID := range resourceIDs {
 		if resourceID.ClusterName != localClusterName {
-			rbacLogger.LogAttrs(ctx, logutils.TraceLevel, `Requested resource is in a foreign cluster, unable to prune roles - All available "search_as_roles" will be requested`,
-				slog.Any("requested_resources", types.ResourceIDToString(resourceID)),
-			)
+			_, debugf := rbacDebugLogger()
+			debugf("Requested resource %q is in a foreign cluster, unable to prune roles. "+
+				`All available "search_as_roles" will be requested.`,
+				types.ResourceIDToString(resourceID))
 			return roles, nil
 		}
 	}
@@ -2270,10 +2217,14 @@ func (m *requestValidator) pruneResourceRequestRoles(
 		}
 
 		switch rr := resource.(type) {
-		case types.Resource153UnwrapperT[IdentityCenterAccount]:
-			matchers = append(matchers, NewIdentityCenterAccountMatcher(rr.UnwrapT()))
-		case types.Resource153UnwrapperT[IdentityCenterAccountAssignment]:
-			matchers = append(matchers, NewIdentityCenterAccountAssignmentMatcher(rr.UnwrapT()))
+		case types.Resource153Unwrapper:
+			switch urr := rr.Unwrap().(type) {
+			case IdentityCenterAccount:
+				matchers = append(matchers, NewIdentityCenterAccountMatcher(urr))
+
+			case IdentityCenterAccountAssignment:
+				matchers = append(matchers, NewIdentityCenterAccountAssignmentMatcher(urr))
+			}
 		}
 
 		for _, role := range allRoles {
@@ -2357,6 +2308,32 @@ func countAllowedLogins(role types.Role) int {
 	return len(allowed)
 }
 
+// getKubeResourceKinds just extracts the kinds from the list.
+// If a wildcard is present, then all supported resource types are returned.
+func getKubeResourceKinds(kubernetesResources []types.RequestKubernetesResource) []string {
+	var kinds []string
+	for _, rm := range kubernetesResources {
+		if rm.Kind == types.Wildcard {
+			return types.KubernetesResourcesKinds
+		}
+		kinds = append(kinds, rm.Kind)
+	}
+	return kinds
+}
+
+// getAllowedKubeResourceKinds returns only the allowed kinds that were not in the
+// denied list.
+func getAllowedKubeResourceKinds(allowedKinds []string, deniedKinds []string) []string {
+	allowed := make(map[string]struct{}, len(allowedKinds))
+	for _, kind := range allowedKinds {
+		allowed[kind] = struct{}{}
+	}
+	for _, kind := range deniedKinds {
+		delete(allowed, kind)
+	}
+	return slices.Collect(maps.Keys(allowed))
+}
+
 func (m *requestValidator) roleAllowsResource(
 	role types.Role,
 	resource types.ResourceWithLabels,
@@ -2397,7 +2374,7 @@ func (m *requestValidator) getUnderlyingResourcesByResourceIDs(ctx context.Conte
 	// requested is fulfilled by at least one role.
 	searchableResourcesIDs := slices.Clone(resourceIDs)
 	for i := range searchableResourcesIDs {
-		if slices.Contains(types.KubernetesResourcesKinds, searchableResourcesIDs[i].Kind) || strings.HasPrefix(searchableResourcesIDs[i].Kind, types.AccessRequestPrefixKindKube) {
+		if slices.Contains(types.KubernetesResourcesKinds, searchableResourcesIDs[i].Kind) {
 			searchableResourcesIDs[i].Kind = types.KindKubernetesCluster
 		}
 	}
@@ -2412,53 +2389,12 @@ func getKubeResourcesFromResourceIDs(resourceIDs []types.ResourceID, clusterName
 	kubernetesResources := make([]types.KubernetesResource, 0, len(resourceIDs))
 
 	for _, resourceID := range resourceIDs {
-		if resourceID.Name != clusterName {
-			continue
-		}
-		// TODO(@creack): DELETE IN v20.0.0 when we no longer support legacy access request formats.
-		// Special case to support legacy "namespace" kind request.
-		if resourceID.Kind == types.KindKubeNamespace {
-			// If the target namespace is a wildcard, update the pattern to make sure cluster-wide resources won't be matched.
-			targetNS := resourceID.SubResourceName
-			if targetNS == types.Wildcard {
-				targetNS = "^.+$"
-			}
-			kubernetesResources = append(kubernetesResources,
-				types.KubernetesResource{
-					Kind:     "namespaces",
-					Name:     resourceID.SubResourceName,
-					APIGroup: "",
-				},
-				types.KubernetesResource{
-					Kind:      types.Wildcard,
-					Name:      types.Wildcard,
-					Namespace: targetNS,
-					APIGroup:  "",
-				},
-			)
-			continue
-		}
-		if slices.Contains(types.KubernetesResourcesKinds, resourceID.Kind) || strings.HasPrefix(resourceID.Kind, types.AccessRequestPrefixKindKube) {
-			kind := types.KubernetesResourcesKindsPlurals[resourceID.Kind]
-			if kind == "" {
-				kind = resourceID.Kind
-			}
-			isClusterWide := slices.Contains(types.KubernetesClusterWideResourceKinds, resourceID.Kind) || strings.HasPrefix(kind, types.AccessRequestPrefixKindKubeClusterWide)
-			if !isClusterWide {
-				kind = strings.TrimPrefix(kind, types.AccessRequestPrefixKindKubeNamespaced)
-			} else {
-				kind = strings.TrimPrefix(kind, types.AccessRequestPrefixKindKubeClusterWide)
-			}
-			gk := schema.ParseGroupKind(kind)
-			if gk.Group == "" {
-				gk.Group = types.KubernetesResourcesV7KindGroups[resourceID.Kind]
-			}
+		if slices.Contains(types.KubernetesResourcesKinds, resourceID.Kind) && resourceID.Name == clusterName {
 			switch {
-			case isClusterWide:
+			case slices.Contains(types.KubernetesClusterWideResourceKinds, resourceID.Kind):
 				kubernetesResources = append(kubernetesResources, types.KubernetesResource{
-					Kind:     gk.Kind,
-					Name:     resourceID.SubResourceName,
-					APIGroup: gk.Group,
+					Kind: resourceID.Kind,
+					Name: resourceID.SubResourceName,
 				})
 			default:
 				splits := strings.Split(resourceID.SubResourceName, "/")
@@ -2466,10 +2402,9 @@ func getKubeResourcesFromResourceIDs(resourceIDs []types.ResourceID, clusterName
 					return nil, trace.BadParameter("subresource name %q does not follow <namespace>/<name> format", resourceID.SubResourceName)
 				}
 				kubernetesResources = append(kubernetesResources, types.KubernetesResource{
-					Kind:      gk.Kind,
+					Kind:      resourceID.Kind,
 					Namespace: splits[0],
 					Name:      splits[1],
-					APIGroup:  gk.Group,
 				})
 			}
 		}

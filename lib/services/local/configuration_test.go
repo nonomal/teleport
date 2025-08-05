@@ -89,8 +89,7 @@ func TestClusterName(t *testing.T) {
 	require.NoError(t, err)
 
 	suite := &suite.ServicesTestSuite{
-		ConfigS:      clusterConfig,
-		LocalConfigS: clusterConfig,
+		ConfigS: clusterConfig,
 	}
 	suite.ClusterName(t)
 }
@@ -199,7 +198,7 @@ audit_events_uri: 'dynamodb://audit_table_name'
 		in, err := types.NewClusterAuditConfig(tc.spec)
 		require.NoError(t, err)
 
-		var data map[string]any
+		var data map[string]interface{}
 		err = yaml.Unmarshal([]byte(tc.config), &data)
 		require.NoError(t, err)
 

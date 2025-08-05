@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/proto"
@@ -42,7 +43,6 @@ import (
 	"github.com/gravitational/teleport/lib/modules/modulestest"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/services/local"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 const ownerUser = "owner"
@@ -730,6 +730,7 @@ func initGeneratorSvc(t *testing.T) (*Generator, *svc) {
 	ulsService, err := local.NewUserLoginStateService(mem)
 	require.NoError(t, err)
 
+	log := logrus.WithField("test", "logger")
 	svc := &svc{
 		AccessLists:     accessListsSvc,
 		Access:          accessSvc,
@@ -739,7 +740,7 @@ func initGeneratorSvc(t *testing.T) (*Generator, *svc) {
 	emitter := &eventstest.MockRecorderEmitter{}
 
 	generator, err := NewGenerator(GeneratorConfig{
-		Log:         logtest.NewLogger(),
+		Log:         log,
 		AccessLists: svc,
 		Access:      svc,
 		UsageEvents: svc,

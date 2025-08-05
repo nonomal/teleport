@@ -29,7 +29,6 @@ import (
 	machineidv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/utils/clientutils"
-	"github.com/gravitational/teleport/lib/itertools/stream"
 	"github.com/gravitational/teleport/lib/services"
 )
 
@@ -75,7 +74,9 @@ func newBotInstanceCollection(upstream services.BotInstance, w types.WatchKind) 
 	return &collection[*machineidv1.BotInstance, botInstanceIndex]{
 		store: newStore(
 			types.KindBotInstance,
-			proto.CloneOf[*machineidv1.BotInstance],
+			func(instance *machineidv1.BotInstance) *machineidv1.BotInstance {
+				return proto.Clone(instance).(*machineidv1.BotInstance)
+			},
 			map[botInstanceIndex]func(*machineidv1.BotInstance) string{
 				// Index on a combination of bot name and instance name
 				botInstanceNameIndex: keyForNameIndex,
@@ -83,12 +84,17 @@ func newBotInstanceCollection(upstream services.BotInstance, w types.WatchKind) 
 				botInstanceActiveAtIndex: keyForActiveAtIndex,
 			}),
 		fetcher: func(ctx context.Context, loadSecrets bool) ([]*machineidv1.BotInstance, error) {
-			out, err := stream.Collect(clientutils.Resources(ctx,
+			var out []*machineidv1.BotInstance
+			clientutils.IterateResources(ctx,
 				func(ctx context.Context, limit int, start string) ([]*machineidv1.BotInstance, string, error) {
 					return upstream.ListBotInstances(ctx, "", limit, start, "", nil)
 				},
-			))
-			return out, trace.Wrap(err)
+				func(hcc *machineidv1.BotInstance) error {
+					out = append(out, hcc)
+					return nil
+				},
+			)
+			return out, nil
 		},
 		watch: w,
 	}, nil

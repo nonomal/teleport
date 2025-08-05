@@ -26,17 +26,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/bot/onboarding"
-	"github.com/gravitational/teleport/lib/tbot/services/application"
 )
 
 type destinationMixinV1 struct {
-	Directory *destination.Directory `yaml:"directory"`
-	Memory    *destination.Memory    `yaml:"memory"`
+	Directory *DestinationDirectory `yaml:"directory"`
+	Memory    *DestinationMemory    `yaml:"memory"`
 }
 
-func (c *destinationMixinV1) migrate() (destination.Destination, error) {
+func (c *destinationMixinV1) migrate() (bot.Destination, error) {
 	switch {
 	case c.Memory != nil && c.Directory != nil:
 		return nil, trace.BadParameter("both 'memory' and 'directory' cannot be specified")
@@ -266,7 +263,7 @@ func (c *configV1Destination) migrate() (ServiceConfig, error) {
 				break
 			}
 		}
-		return &application.OutputConfig{
+		return &ApplicationOutput{
 			Destination:           dest,
 			Roles:                 c.Roles,
 			AppName:               c.App,
@@ -361,14 +358,14 @@ func (c *configV1Destination) migrate() (ServiceConfig, error) {
 }
 
 type configV1 struct {
-	Onboarding      onboarding.Config `yaml:"onboarding"`
-	Debug           bool              `yaml:"debug"`
-	AuthServer      string            `yaml:"auth_server"`
-	CertificateTTL  time.Duration     `yaml:"certificate_ttl"`
-	RenewalInterval time.Duration     `yaml:"renewal_interval"`
-	Oneshot         bool              `yaml:"oneshot"`
-	FIPS            bool              `yaml:"fips"`
-	DiagAddr        string            `yaml:"diag_addr"`
+	Onboarding      OnboardingConfig `yaml:"onboarding"`
+	Debug           bool             `yaml:"debug"`
+	AuthServer      string           `yaml:"auth_server"`
+	CertificateTTL  time.Duration    `yaml:"certificate_ttl"`
+	RenewalInterval time.Duration    `yaml:"renewal_interval"`
+	Oneshot         bool             `yaml:"oneshot"`
+	FIPS            bool             `yaml:"fips"`
+	DiagAddr        string           `yaml:"diag_addr"`
 
 	Destinations  []configV1Destination `yaml:"destinations"`
 	StorageConfig *storageConfigV1      `yaml:"storage"`
@@ -408,7 +405,7 @@ func (c *configV1) migrate() (*BotConfig, error) {
 		Onboarding: c.Onboarding,
 		Debug:      c.Debug,
 		AuthServer: c.AuthServer,
-		CredentialLifetime: bot.CredentialLifetime{
+		CredentialLifetime: CredentialLifetime{
 			TTL:             c.CertificateTTL,
 			RenewalInterval: c.RenewalInterval,
 		},

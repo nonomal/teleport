@@ -48,10 +48,9 @@ import (
 
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/fixtures"
-	"github.com/gravitational/teleport/lib/tbot/bot"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/workloadidentity"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
+	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/lib/utils/testutils"
 	"github.com/gravitational/teleport/lib/utils/testutils/golden"
 	"github.com/gravitational/teleport/tool/teleport/testenv"
@@ -69,7 +68,7 @@ func (m *mockTrustBundleCache) GetBundleSet(ctx context.Context) (*workloadident
 // It tests the generation of the DiscoveryResponses and that authentication
 // is enforced.
 func TestSDS_FetchSecrets(t *testing.T) {
-	log := logtest.NewLogger()
+	log := utils.NewSlogLoggerForTests()
 	ctx := context.Background()
 
 	td, err := spiffeid.TrustDomainFromString("example.com")
@@ -114,7 +113,7 @@ func TestSDS_FetchSecrets(t *testing.T) {
 		},
 	}
 	botConfig := &config.BotConfig{
-		CredentialLifetime: bot.CredentialLifetime{
+		CredentialLifetime: config.CredentialLifetime{
 			RenewalInterval: time.Minute,
 		},
 	}
@@ -218,7 +217,7 @@ func Test_E2E_SPIFFE_SDS(t *testing.T) {
 	}
 	t.Parallel()
 	ctx := context.Background()
-	log := logtest.NewLogger()
+	log := utils.NewSlogLoggerForTests()
 
 	// Make a new auth server.
 	process := testenv.MakeTestServer(t, defaultTestServerOpts(t, log))

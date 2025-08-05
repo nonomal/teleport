@@ -123,8 +123,6 @@ type User interface {
 	SetHostUserUID(uid string)
 	// SetHostUserGID sets the GID for host users
 	SetHostUserGID(gid string)
-	// SetMCPTools sets a list of allowed MCP tools for the user
-	SetMCPTools(mcpTools []string)
 	// GetCreatedBy returns information about user
 	GetCreatedBy() CreatedBy
 	// SetCreatedBy sets created by information
@@ -158,8 +156,6 @@ type User interface {
 	SetWeakestDevice(MFADeviceKind)
 	// GetWeakestDevice gets the MFA state for the user.
 	GetWeakestDevice() MFADeviceKind
-	// Clone creats a copy of the user.
-	Clone() User
 }
 
 // NewUser creates new empty user
@@ -275,15 +271,14 @@ func (u *UserV2) SetName(e string) {
 	u.Metadata.Name = e
 }
 
-func (u *UserV2) Clone() User {
-	return utils.CloneProtoMsg(u)
-}
-
 // WithoutSecrets returns an instance of resource without secrets.
 func (u *UserV2) WithoutSecrets() Resource {
-	u2 := utils.CloneProtoMsg(u)
+	if u.Spec.LocalAuth == nil {
+		return u
+	}
+	u2 := *u
 	u2.Spec.LocalAuth = nil
-	return u2
+	return &u2
 }
 
 // GetTraits gets the trait map for this user used to populate role variables.
@@ -417,11 +412,6 @@ func (u *UserV2) SetHostUserUID(uid string) {
 // SetHostUserGID sets the host user GID
 func (u *UserV2) SetHostUserGID(uid string) {
 	u.setTrait(constants.TraitHostUserGID, []string{uid})
-}
-
-// SetMCPTools sets a list of allowed MCP tools for the user
-func (u *UserV2) SetMCPTools(mcpTools []string) {
-	u.setTrait(constants.TraitMCPTools, mcpTools)
 }
 
 // GetStatus returns login status of the user

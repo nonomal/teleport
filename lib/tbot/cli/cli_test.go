@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -67,7 +66,7 @@ func TestConfigCLIOnlySample(t *testing.T) {
 	require.Equal(t, legacy.CAPins, cfg.Onboarding.CAPins)
 
 	// Storage is still default
-	storageImpl, ok := cfg.Storage.Destination.(*destination.Directory)
+	storageImpl, ok := cfg.Storage.Destination.(*config.DestinationDirectory)
 	require.True(t, ok)
 	require.Equal(t, config.GetDefaultStoragePath(), storageImpl.Path)
 
@@ -79,7 +78,7 @@ func TestConfigCLIOnlySample(t *testing.T) {
 
 	destImpl := identOutput.GetDestination()
 	require.NoError(t, err)
-	destImplReal, ok := destImpl.(*destination.Directory)
+	destImplReal, ok := destImpl.(*config.DestinationDirectory)
 	require.True(t, ok)
 
 	require.Equal(t, legacy.DestinationDir, destImplReal.Path)

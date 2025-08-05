@@ -19,18 +19,14 @@
 package services
 
 import (
-	"context"
-	"log/slog"
 	"slices"
 
 	"github.com/gravitational/trace"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
-	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
-	healthcheckconfigv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/healthcheckconfig/v1"
-	labelv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/label/v1"
 	"github.com/gravitational/teleport/api/types"
 	apiutils "github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/lib/modules"
@@ -211,16 +207,12 @@ func NewPresetEditorRole() types.Role {
 					types.NewRule(types.KindWorkloadIdentity, RW()),
 					types.NewRule(types.KindAutoUpdateVersion, RW()),
 					types.NewRule(types.KindAutoUpdateConfig, RW()),
-					types.NewRule(types.KindAutoUpdateAgentRollout, RO()),
 					types.NewRule(types.KindGitServer, RW()),
 					types.NewRule(types.KindWorkloadIdentityX509Revocation, RW()),
-					types.NewRule(types.KindHealthCheckConfig, RW()),
-					types.NewRule(types.KindSigstorePolicy, RW()),
+					types.NewRule(types.KindAutoUpdateAgentRollout, RO()),
 					types.NewRule(types.KindWorkloadIdentityX509IssuerOverride, RW()),
 					types.NewRule(types.KindWorkloadIdentityX509IssuerOverrideCSR, RW()),
-					types.NewRule(types.KindInferenceModel, RW()),
-					types.NewRule(types.KindInferenceSecret, RW()),
-					types.NewRule(types.KindInferencePolicy, RW()),
+					types.NewRule(types.KindSigstorePolicy, RW()),
 				},
 			},
 		},
@@ -287,7 +279,6 @@ func NewPresetAccessRole() types.Role {
 						Namespace: types.Wildcard,
 						Name:      types.Wildcard,
 						Verbs:     []string{types.Wildcard},
-						APIGroup:  "",
 					},
 				},
 				GitHubPermissions: []types.GitHubPermission{{
@@ -302,9 +293,6 @@ func NewPresetAccessRole() types.Role {
 					},
 					types.NewRule(types.KindInstance, RO()),
 					types.NewRule(types.KindClusterMaintenanceConfig, RO()),
-				},
-				MCP: &types.MCPPermissions{
-					Tools: []string{teleport.TraitInternalMCPTools},
 				},
 			},
 		},
@@ -378,7 +366,7 @@ func NewPresetReviewerRole() types.Role {
 
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetReviewerRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -405,7 +393,7 @@ func NewPresetRequesterRole() types.Role {
 
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetRequesterRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -432,7 +420,7 @@ func NewPresetGroupAccessRole() types.Role {
 
 	role := &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetGroupAccessRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -466,7 +454,7 @@ func NewPresetDeviceAdminRole() types.Role {
 
 	return &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetDeviceAdminRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -495,7 +483,7 @@ func NewPresetDeviceEnrollRole() types.Role {
 
 	return &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetDeviceEnrollRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -525,7 +513,7 @@ func NewPresetRequireTrustedDeviceRole() types.Role {
 
 	return &types.RoleV6{
 		Kind:    types.KindRole,
-		Version: types.V7,
+		Version: types.V6,
 		Metadata: types.Metadata{
 			Name:        teleport.PresetRequireTrustedDeviceRoleName,
 			Namespace:   apidefaults.Namespace,
@@ -817,38 +805,11 @@ func NewPresetTerraformProviderRole() types.Role {
 					types.NewRule(types.KindGitServer, RW()),
 					types.NewRule(types.KindAutoUpdateConfig, RW()),
 					types.NewRule(types.KindAutoUpdateVersion, RW()),
-					types.NewRule(types.KindHealthCheckConfig, RW()),
 				},
 			},
 		},
 	}
 	return role
-}
-
-// NewPresetHealthCheckConfig returns a preset default health_check_config that
-// enables health checks for all resources.
-func NewPresetHealthCheckConfig() *healthcheckconfigv1.HealthCheckConfig {
-	return &healthcheckconfigv1.HealthCheckConfig{
-		Kind:    types.KindHealthCheckConfig,
-		Version: types.V1,
-		Metadata: &headerv1.Metadata{
-			Name:        teleport.PresetDefaultHealthCheckConfigName,
-			Description: "Enables all health checks by default",
-			Namespace:   apidefaults.Namespace,
-			Labels: map[string]string{
-				types.TeleportInternalResourceType: types.PresetResource,
-			},
-		},
-		Spec: &healthcheckconfigv1.HealthCheckConfigSpec{
-			Match: &healthcheckconfigv1.Matcher{
-				// match all databases
-				DbLabels: []*labelv1.Label{{
-					Name:   types.Wildcard,
-					Values: []string{types.Wildcard},
-				}},
-			},
-		},
-	}
 }
 
 // bootstrapRoleMetadataLabels are metadata labels that will be applied to each role.
@@ -998,7 +959,7 @@ func defaultAllowAccountAssignments(enterprise bool) map[string][]types.Identity
 
 // AddRoleDefaults adds default role attributes to a preset role.
 // Only attributes whose resources are not already defined (either allowing or denying) are added.
-func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
+func AddRoleDefaults(role types.Role) (types.Role, error) {
 	changed := false
 
 	oldLabels := role.GetAllLabels()
@@ -1052,10 +1013,7 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 				continue
 			}
 
-			slog.DebugContext(ctx, "Adding default allow rule to role",
-				"rule", defaultRule,
-				"role", role.GetName(),
-			)
+			log.Debugf("Adding default allow rule %v for role %q", defaultRule, role.GetName())
 			rules := role.GetRules(types.Allow)
 			rules = append(rules, defaultRule)
 			role.SetRules(types.Allow, rules)
@@ -1128,15 +1086,6 @@ func AddRoleDefaults(ctx context.Context, role types.Role) (types.Role, error) {
 			role.SetGitHubPermissions(types.Allow, []types.GitHubPermission{{
 				Organizations: githubOrgs,
 			}})
-			changed = true
-		}
-	}
-
-	if role.GetMCPPermissions(types.Allow) == nil {
-		if mcpTools := defaultMCPTools()[role.GetName()]; len(mcpTools) > 0 {
-			role.SetMCPPermissions(types.Allow, &types.MCPPermissions{
-				Tools: mcpTools,
-			})
 			changed = true
 		}
 	}
@@ -1256,11 +1205,5 @@ func updateAllowLabels(role types.Role, kind string, defaultLabels types.Labels)
 func defaultGitHubOrgs() map[string][]string {
 	return map[string][]string{
 		teleport.PresetAccessRoleName: []string{teleport.TraitInternalGitHubOrgs},
-	}
-}
-
-func defaultMCPTools() map[string][]string {
-	return map[string][]string{
-		teleport.PresetAccessRoleName: []string{teleport.TraitInternalMCPTools},
 	}
 }

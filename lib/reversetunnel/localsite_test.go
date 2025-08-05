@@ -40,11 +40,10 @@ import (
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/log/logtest"
 )
 
 func TestMain(m *testing.M) {
-	logtest.InitLogger(testing.Verbose)
+	utils.InitLoggerForTests()
 
 	os.Exit(m.Run())
 }
@@ -63,7 +62,7 @@ func TestRemoteConnCleanup(t *testing.T) {
 	watcher, err := services.NewProxyWatcher(ctx, services.ProxyWatcherConfig{
 		ResourceWatcherConfig: services.ResourceWatcherConfig{
 			Component: "test",
-			Logger:    logtest.NewLogger(),
+			Logger:    utils.NewSlogLoggerForTests(),
 			Clock:     clock,
 			Client:    clt,
 		},
@@ -78,7 +77,7 @@ func TestRemoteConnCleanup(t *testing.T) {
 		ctx:              ctx,
 		Config:           Config{Clock: clock},
 		localAuthClient:  &mockLocalSiteClient{},
-		logger:           logtest.NewLogger(),
+		log:              utils.NewLoggerForTests(),
 		offlineThreshold: time.Second,
 		proxyWatcher:     watcher,
 	}
@@ -103,7 +102,7 @@ func TestRemoteConnCleanup(t *testing.T) {
 
 	// terminated by too many missed heartbeats
 	go func() {
-		site.handleHeartbeat(ctx, conn1, nil, reqs)
+		site.handleHeartbeat(conn1, nil, reqs)
 		cancel()
 	}()
 
@@ -241,7 +240,8 @@ func TestLocalSiteOverlap(t *testing.T) {
 func TestProxyResync(t *testing.T) {
 	t.Parallel()
 
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	clock := clockwork.NewFakeClock()
 
@@ -258,7 +258,7 @@ func TestProxyResync(t *testing.T) {
 	watcher, err := services.NewProxyWatcher(ctx, services.ProxyWatcherConfig{
 		ResourceWatcherConfig: services.ResourceWatcherConfig{
 			Component: "test",
-			Logger:    logtest.NewLogger(),
+			Logger:    utils.NewSlogLoggerForTests(),
 			Clock:     clock,
 			Client:    clt,
 		},
@@ -273,7 +273,7 @@ func TestProxyResync(t *testing.T) {
 		ctx:              ctx,
 		Config:           Config{Clock: clock},
 		localAuthClient:  &mockLocalSiteClient{},
-		logger:           logtest.NewLogger(),
+		log:              utils.NewLoggerForTests(),
 		offlineThreshold: 24 * time.Hour,
 		proxyWatcher:     watcher,
 	}
@@ -312,12 +312,12 @@ func TestProxyResync(t *testing.T) {
 
 	// terminated by canceled context
 	go func() {
-		site.handleHeartbeat(ctx, conn1, nil, reqs)
+		site.handleHeartbeat(conn1, nil, reqs)
 	}()
 
 	expected := []types.Server{proxy1, proxy2}
 	sort.Slice(expected, func(i, j int) bool { return expected[i].GetName() < expected[j].GetName() })
-	for range 5 {
+	for i := 0; i < 5; i++ {
 		// wait for the heartbeat loop to select
 		clock.BlockUntil(3) // periodic ticker + heart beat timer + resync ticker = 3
 

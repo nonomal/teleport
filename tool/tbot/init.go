@@ -32,7 +32,6 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/constants"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/cli"
 	"github.com/gravitational/teleport/lib/tbot/config"
@@ -445,7 +444,7 @@ func onInit(globals *cli.GlobalArgs, init *cli.InitCommand) error {
 	} else {
 		for _, v := range initables {
 			d := v.GetDestination()
-			dirDest, ok := d.(*destination.Directory)
+			dirDest, ok := d.(*config.DestinationDirectory)
 			if ok && dirDest.Path == init.InitDir {
 				target = v
 				break
@@ -456,7 +455,7 @@ func onInit(globals *cli.GlobalArgs, init *cli.InitCommand) error {
 		}
 	}
 
-	destDir, ok := target.GetDestination().(*destination.Directory)
+	destDir, ok := target.GetDestination().(*config.DestinationDirectory)
 	if !ok {
 		return trace.BadParameter("`tbot init` only supports directory destinations")
 	}

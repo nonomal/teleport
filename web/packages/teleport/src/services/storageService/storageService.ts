@@ -43,7 +43,6 @@ const KEEP_LOCALSTORAGE_KEYS_ON_LOGOUT = [
   KeysEnum.USERS_NOT_EQUAL_TO_MAU_ACKNOWLEDGED,
   KeysEnum.USE_NEW_ROLE_EDITOR,
   KeysEnum.RECENT_HISTORY,
-  KeysEnum.REMEMBERED_SSO_USERNAME,
 ];
 
 const RECENT_HISTORY_MAX_LENGTH = 10;
@@ -262,10 +261,6 @@ export const storageService = {
     return this.getParsedJSONValue(KeysEnum.ACCESS_GRAPH_ENABLED, false);
   },
 
-  getAccessGraphIacEnabled(): boolean {
-    return this.getParsedJSONValue(KeysEnum.ACCESS_GRAPH_IAC_ENABLED, false);
-  },
-
   getAccessGraphSQLEnabled(): boolean {
     return this.getParsedJSONValue(KeysEnum.ACCESS_GRAPH_SQL_ENABLED, false);
   },
@@ -338,17 +333,5 @@ export const storageService = {
     );
 
     return newHistory;
-  },
-
-  setRememberedSsoUsername(username: string) {
-    window.localStorage.setItem(KeysEnum.REMEMBERED_SSO_USERNAME, username);
-  },
-
-  getRememberedSsoUsername(): string {
-    return window.localStorage.getItem(KeysEnum.REMEMBERED_SSO_USERNAME) || '';
-  },
-
-  clearRememberedSsoUsername() {
-    window.localStorage.removeItem(KeysEnum.REMEMBERED_SSO_USERNAME);
   },
 };

@@ -27,7 +27,7 @@ import {
 import { getDefaultUnifiedResourcePreferences } from 'teleterm/ui/services/workspacesService';
 
 import { MockedUnaryCall } from '../cloneableClient';
-import { AutoUpdateClient, TshdClient, VnetClient } from '../createClient';
+import { TshdClient, VnetClient } from '../createClient';
 
 export class MockTshClient implements TshdClient {
   listRootClusters = () => new MockedUnaryCall({ clusters: [] });
@@ -42,6 +42,12 @@ export class MockTshClient implements TshdClient {
     new MockedUnaryCall({
       roles: [],
       applicableRoles: [],
+    });
+  getServers = () =>
+    new MockedUnaryCall({
+      agents: [],
+      totalCount: 0,
+      startKey: '',
     });
   assumeRole = () => new MockedUnaryCall({});
   deleteAccessRequest = () => new MockedUnaryCall({});
@@ -89,8 +95,6 @@ export class MockTshClient implements TshdClient {
     new MockedUnaryCall({ resources: [], nextKey: '' });
   listKubernetesResources = () =>
     new MockedUnaryCall({ resources: [], nextKey: '' });
-  listDatabaseServers = () =>
-    new MockedUnaryCall({ resources: [], nextKey: '' });
   getUserPreferences = () =>
     new MockedUnaryCall({
       userPreferences: {
@@ -136,13 +140,4 @@ export class MockVnetClient implements VnetClient {
     });
   }
   autoConfigureSSH = () => new MockedUnaryCall({});
-}
-
-export class MockAutoUpdateClient implements AutoUpdateClient {
-  getClusterVersions = () =>
-    new MockedUnaryCall({
-      reachableClusters: [],
-      unreachableClusters: [],
-    });
-  getDownloadBaseUrl = () => new MockedUnaryCall({ baseUrl: '' });
 }

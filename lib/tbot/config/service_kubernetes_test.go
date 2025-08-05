@@ -21,13 +21,10 @@ package config
 import (
 	"testing"
 	"time"
-
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 )
 
 func TestKubernetesOutput_YAML(t *testing.T) {
-	dest := &destination.Memory{}
+	dest := &DestinationMemory{}
 	tests := []testYAMLCase[KubernetesOutput]{
 		{
 			name: "full",
@@ -35,7 +32,7 @@ func TestKubernetesOutput_YAML(t *testing.T) {
 				Destination:       dest,
 				Roles:             []string{"access"},
 				KubernetesCluster: "k8s.example.com",
-				CredentialLifetime: bot.CredentialLifetime{
+				CredentialLifetime: CredentialLifetime{
 					TTL:             1 * time.Minute,
 					RenewalInterval: 30 * time.Second,
 				},
@@ -58,7 +55,7 @@ func TestKubernetesOutput_CheckAndSetDefaults(t *testing.T) {
 			name: "valid",
 			in: func() *KubernetesOutput {
 				return &KubernetesOutput{
-					Destination:       destination.NewMemory(),
+					Destination:       memoryDestForTest(),
 					Roles:             []string{"access"},
 					KubernetesCluster: "my-cluster",
 				}
@@ -78,7 +75,7 @@ func TestKubernetesOutput_CheckAndSetDefaults(t *testing.T) {
 			name: "missing kubernetes_config",
 			in: func() *KubernetesOutput {
 				return &KubernetesOutput{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 				}
 			},
 			wantErr: "kubernetes_cluster must not be empty",

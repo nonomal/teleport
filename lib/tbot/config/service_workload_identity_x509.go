@@ -23,8 +23,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
-	"github.com/gravitational/teleport/lib/tbot/internal/encoding"
 )
 
 const WorkloadIdentityX509OutputType = "workload-identity-x509"
@@ -34,6 +32,34 @@ var (
 	_ Initable      = &WorkloadIdentityX509Service{}
 )
 
+// WorkloadIdentitySelector allows the user to select which WorkloadIdentity
+// resource should be used.
+//
+// Only one of Name or Labels can be set.
+type WorkloadIdentitySelector struct {
+	// Name is the name of a specific WorkloadIdentity resource.
+	Name string `yaml:"name"`
+	// Labels is a set of labels that the WorkloadIdentity resource must have.
+	Labels map[string][]string `yaml:"labels,omitempty"`
+}
+
+// CheckAndSetDefaults checks the WorkloadIdentitySelector values and sets any
+// defaults.
+func (s *WorkloadIdentitySelector) CheckAndSetDefaults() error {
+	switch {
+	case s.Name == "" && len(s.Labels) == 0:
+		return trace.BadParameter("one of ['name', 'labels'] must be set")
+	case s.Name != "" && len(s.Labels) > 0:
+		return trace.BadParameter("at most one of ['name', 'labels'] can be set")
+	}
+	for k, v := range s.Labels {
+		if len(v) == 0 {
+			return trace.BadParameter("labels[%s]: must have at least one value", k)
+		}
+	}
+	return nil
+}
+
 // WorkloadIdentityX509Service is the configuration for the WorkloadIdentityX509Service
 // Emulates the output of https://github.com/spiffe/spiffe-helper
 type WorkloadIdentityX509Service struct {
@@ -41,16 +67,16 @@ type WorkloadIdentityX509Service struct {
 	Name string `yaml:"name,omitempty"`
 	// Selector is the selector for the WorkloadIdentity resource that will be
 	// used to issue WICs.
-	Selector bot.WorkloadIdentitySelector `yaml:"selector"`
+	Selector WorkloadIdentitySelector `yaml:"selector"`
 	// Destination is where the credentials should be written to.
-	Destination destination.Destination `yaml:"destination"`
+	Destination bot.Destination `yaml:"destination"`
 	// IncludeFederatedTrustBundles controls whether to include federated trust
 	// bundles in the output.
 	IncludeFederatedTrustBundles bool `yaml:"include_federated_trust_bundles,omitempty"`
 
 	// CredentialLifetime contains configuration for how long credentials will
 	// last and the frequency at which they'll be renewed.
-	CredentialLifetime bot.CredentialLifetime `yaml:",inline"`
+	CredentialLifetime CredentialLifetime `yaml:",inline"`
 }
 
 // GetName returns the user-given name of the service, used for validation purposes.
@@ -64,7 +90,7 @@ func (o *WorkloadIdentityX509Service) Init(ctx context.Context) error {
 }
 
 // GetDestination returns the destination.
-func (o *WorkloadIdentityX509Service) GetDestination() destination.Destination {
+func (o *WorkloadIdentityX509Service) GetDestination() bot.Destination {
 	return o.Destination
 }
 
@@ -80,8 +106,8 @@ func (o *WorkloadIdentityX509Service) CheckAndSetDefaults() error {
 }
 
 // Describe returns the file descriptions for the WorkloadIdentityX509Service.
-func (o *WorkloadIdentityX509Service) Describe() []bot.FileDescription {
-	fds := []bot.FileDescription{
+func (o *WorkloadIdentityX509Service) Describe() []FileDescription {
+	fds := []FileDescription{
 		{
 			Name: SVIDPEMPath,
 		},
@@ -103,9 +129,9 @@ func (o *WorkloadIdentityX509Service) Type() string {
 }
 
 // MarshalYAML marshals the WorkloadIdentityX509Service into YAML.
-func (o *WorkloadIdentityX509Service) MarshalYAML() (any, error) {
+func (o *WorkloadIdentityX509Service) MarshalYAML() (interface{}, error) {
 	type raw WorkloadIdentityX509Service
-	return encoding.WithTypeHeader((*raw)(o), WorkloadIdentityX509OutputType)
+	return withTypeHeader((*raw)(o), WorkloadIdentityX509OutputType)
 }
 
 // UnmarshalYAML unmarshals the WorkloadIdentityX509Service from YAML.
@@ -123,8 +149,8 @@ func (o *WorkloadIdentityX509Service) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func (o *WorkloadIdentityX509Service) GetCredentialLifetime() bot.CredentialLifetime {
+func (o *WorkloadIdentityX509Service) GetCredentialLifetime() CredentialLifetime {
 	lt := o.CredentialLifetime
-	lt.SkipMaxTTLValidation = true
+	lt.skipMaxTTLValidation = true
 	return lt
 }

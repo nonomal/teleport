@@ -128,14 +128,6 @@ func compareServers(a, b types.Server) int {
 	if !slices.Equal(a.GetProxyIDs(), b.GetProxyIDs()) {
 		return Different
 	}
-
-	if a.GetRelayGroup() != b.GetRelayGroup() {
-		return Different
-	}
-	if !slices.Equal(a.GetRelayIDs(), b.GetRelayIDs()) {
-		return Different
-	}
-
 	if !cmp.Equal(a.GetGitHub(), b.GetGitHub()) {
 		return Different
 	}
@@ -373,7 +365,7 @@ func UnmarshalServer(bytes []byte, kind string, opts ...MarshalOption) (types.Se
 
 	var s types.ServerV2
 	if err := utils.FastUnmarshal(bytes, &s); err != nil {
-		return nil, trace.BadParameter("%s", err)
+		return nil, trace.BadParameter(err.Error())
 	}
 	s.Kind = kind
 	if err := s.CheckAndSetDefaults(); err != nil {

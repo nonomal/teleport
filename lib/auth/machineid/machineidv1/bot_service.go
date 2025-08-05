@@ -22,7 +22,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -60,7 +59,6 @@ var SupportedJoinMethods = []types.JoinMethod{
 	types.JoinMethodTPM,
 	types.JoinMethodTerraformCloud,
 	types.JoinMethodBitbucket,
-	types.JoinMethodBoundKeypair,
 }
 
 // BotResourceName returns the default name for resources associated with the
@@ -812,7 +810,9 @@ func botToUserAndRole(bot *pb.Bot, now time.Time, createdBy string) (types.User,
 
 	// First copy in the labels from the Bot resource
 	userMeta.Labels = map[string]string{}
-	maps.Copy(userMeta.Labels, bot.Metadata.Labels)
+	for k, v := range bot.Metadata.Labels {
+		userMeta.Labels[k] = v
+	}
 	// Then set these labels over the top - we exclude these when converting
 	// back.
 	userMeta.Labels[types.BotLabel] = bot.Metadata.Name

@@ -21,13 +21,10 @@ package config
 import (
 	"testing"
 	"time"
-
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 )
 
 func TestKubernetesV2Output_YAML(t *testing.T) {
-	dest := &destination.Memory{}
+	dest := &DestinationMemory{}
 	tests := []testYAMLCase[KubernetesV2Output]{
 		{
 			name: "full",
@@ -51,7 +48,7 @@ func TestKubernetesV2Output_YAML(t *testing.T) {
 						},
 					},
 				},
-				CredentialLifetime: bot.CredentialLifetime{
+				CredentialLifetime: CredentialLifetime{
 					TTL:             1 * time.Minute,
 					RenewalInterval: 30 * time.Second,
 				},
@@ -79,7 +76,7 @@ func TestKubernetesV2Output_CheckAndSetDefaults(t *testing.T) {
 			name: "valid_name",
 			in: func() *KubernetesV2Output {
 				return &KubernetesV2Output{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 					Selectors: []*KubernetesSelector{
 						{Name: "foo", Labels: map[string]string{}},
 					},
@@ -90,7 +87,7 @@ func TestKubernetesV2Output_CheckAndSetDefaults(t *testing.T) {
 			name: "valid_label",
 			in: func() *KubernetesV2Output {
 				return &KubernetesV2Output{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 					Selectors: []*KubernetesSelector{
 						{Labels: map[string]string{
 							"foo": "bar",
@@ -115,7 +112,7 @@ func TestKubernetesV2Output_CheckAndSetDefaults(t *testing.T) {
 			name: "missing selectors",
 			in: func() *KubernetesV2Output {
 				return &KubernetesV2Output{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 				}
 			},
 			wantErr: "at least one selector must be provided",
@@ -124,7 +121,7 @@ func TestKubernetesV2Output_CheckAndSetDefaults(t *testing.T) {
 			name: "empty selector",
 			in: func() *KubernetesV2Output {
 				return &KubernetesV2Output{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 					Selectors: []*KubernetesSelector{
 						{},
 					},
@@ -136,7 +133,7 @@ func TestKubernetesV2Output_CheckAndSetDefaults(t *testing.T) {
 			name: "both name and label in selector",
 			in: func() *KubernetesV2Output {
 				return &KubernetesV2Output{
-					Destination: destination.NewMemory(),
+					Destination: memoryDestForTest(),
 					Selectors: []*KubernetesSelector{
 						{
 							Name: "foo",

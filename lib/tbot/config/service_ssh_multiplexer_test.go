@@ -22,8 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gravitational/teleport/lib/tbot/bot"
-	"github.com/gravitational/teleport/lib/tbot/bot/destination"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 )
 
@@ -34,13 +32,13 @@ func TestSSHMultiplexerService_YAML(t *testing.T) {
 		{
 			name: "full",
 			in: SSHMultiplexerService{
-				Destination: &destination.Directory{
+				Destination: &DestinationDirectory{
 					Path: "/opt/machine-id",
 				},
 				EnableResumption:   ptr[bool](true),
 				ProxyTemplatesPath: "/etc/teleport/templates",
 				ProxyCommand:       []string{"rusty-boi"},
-				CredentialLifetime: bot.CredentialLifetime{
+				CredentialLifetime: CredentialLifetime{
 					TTL:             1 * time.Minute,
 					RenewalInterval: 30 * time.Second,
 				},
@@ -58,7 +56,7 @@ func TestSSHMultiplexerService_CheckAndSetDefaults(t *testing.T) {
 			name: "valid",
 			in: func() *SSHMultiplexerService {
 				return &SSHMultiplexerService{
-					Destination: &destination.Directory{
+					Destination: &DestinationDirectory{
 						Path:     "/opt/machine-id",
 						ACLs:     botfs.ACLOff,
 						Symlinks: botfs.SymlinksInsecure,
@@ -79,7 +77,7 @@ func TestSSHMultiplexerService_CheckAndSetDefaults(t *testing.T) {
 			name: "wrong destination type",
 			in: func() *SSHMultiplexerService {
 				return &SSHMultiplexerService{
-					Destination: &destination.Memory{},
+					Destination: &DestinationMemory{},
 				}
 			},
 			wantErr: "destination: must be of type `directory`",

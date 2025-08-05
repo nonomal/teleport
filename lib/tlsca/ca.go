@@ -19,7 +19,6 @@
 package tlsca
 
 import (
-	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -38,6 +37,7 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/gravitational/teleport"
@@ -47,10 +47,11 @@ import (
 	"github.com/gravitational/teleport/api/types/wrappers"
 	"github.com/gravitational/teleport/api/utils"
 	"github.com/gravitational/teleport/api/utils/keys"
-	logutils "github.com/gravitational/teleport/lib/utils/log"
 )
 
-var logger = logutils.NewPackageLogger(teleport.ComponentKey, teleport.ComponentAuthority)
+var log = logrus.WithFields(logrus.Fields{
+	teleport.ComponentKey: teleport.ComponentAuthority,
+})
 
 // FromCertAndSigner returns a CertAuthority with the given raw certificate and signer.
 func FromCertAndSigner(certPEM []byte, signer crypto.Signer) (*CertAuthority, error) {
@@ -193,9 +194,6 @@ type Identity struct {
 	// BotInstanceID is a unique identifier for Machine ID bots that is
 	// persisted through renewals.
 	BotInstanceID string
-	// JoinToken contains the name of the join token used when a Machine ID bot
-	// joins. It is empty for other identity types.
-	JoinToken string
 	// AllowedResourceIDs lists the resources the identity should be allowed to
 	// access.
 	AllowedResourceIDs []types.ResourceID
@@ -251,11 +249,6 @@ type RouteToApp struct {
 	// apps. It is appended to the hostname from the URI in the app spec, since the URI from
 	// RouteToApp is not used as the source of truth for routing.
 	TargetPort int
-
-	// AWSCredentialProcessCredentials contains the credentials to access AWS APIs.
-	// This is a JSON string that conforms with
-	// https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html#feature-process-credentials-output
-	AWSCredentialProcessCredentials string
 }
 
 // RouteToDatabase contains routing information for databases.
@@ -386,7 +379,6 @@ func (id *Identity) GetEventIdentity() events.Identity {
 		DeviceExtensions:        devExts,
 		BotName:                 id.BotName,
 		BotInstanceID:           id.BotInstanceID,
-		JoinToken:               id.JoinToken,
 	}
 }
 
@@ -492,11 +484,6 @@ var (
 	// target port into a certificate.
 	AppTargetPortASN1ExtensionOID = asn1.ObjectIdentifier{1, 3, 9999, 1, 21}
 
-	// AppAWSCredentialProcessCredentialsASN1ExtensionOID is an extension that encodes the credentials to access AWS APIs.
-	// This is a JSON string that conforms with
-	// https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html#feature-process-credentials-output
-	AppAWSCredentialProcessCredentialsASN1ExtensionOID = asn1.ObjectIdentifier{1, 3, 9999, 1, 22}
-
 	// DatabaseServiceNameASN1ExtensionOID is an extension ID used when encoding/decoding
 	// database service name into certificates.
 	DatabaseServiceNameASN1ExtensionOID = asn1.ObjectIdentifier{1, 3, 9999, 2, 1}
@@ -585,10 +572,6 @@ var (
 
 	// ADStatusOID is an extension OID used to indicate that we're connecting to AD-joined desktop.
 	ADStatusOID = asn1.ObjectIdentifier{1, 3, 9999, 2, 22}
-
-	// JoinTokenOID is an extension OID that contains the name of the join token
-	// used when a bot joins.
-	JoinTokenASN1ExtensionOID = asn1.ObjectIdentifier{1, 3, 9999, 2, 23}
 )
 
 // Device Trust OIDs.
@@ -711,13 +694,6 @@ func (id *Identity) Subject() (pkix.Name, error) {
 			pkix.AttributeTypeAndValue{
 				Type:  AWSRoleARNsASN1ExtensionOID,
 				Value: id.AWSRoleARNs[i],
-			})
-	}
-	if id.RouteToApp.AWSCredentialProcessCredentials != "" {
-		subject.ExtraNames = append(subject.ExtraNames,
-			pkix.AttributeTypeAndValue{
-				Type:  AppAWSCredentialProcessCredentialsASN1ExtensionOID,
-				Value: id.RouteToApp.AWSCredentialProcessCredentials,
 			})
 	}
 	if id.RouteToApp.AzureIdentity != "" {
@@ -895,14 +871,6 @@ func (id *Identity) Subject() (pkix.Name, error) {
 			})
 	}
 
-	if id.JoinToken != "" {
-		subject.ExtraNames = append(subject.ExtraNames,
-			pkix.AttributeTypeAndValue{
-				Type:  JoinTokenASN1ExtensionOID,
-				Value: id.JoinToken,
-			})
-	}
-
 	if id.UserType != "" {
 		subject.ExtraNames = append(subject.ExtraNames,
 			pkix.AttributeTypeAndValue{
@@ -1065,11 +1033,6 @@ func FromSubject(subject pkix.Name, expires time.Time) (*Identity, error) {
 			if ok {
 				id.AWSRoleARNs = append(id.AWSRoleARNs, val)
 			}
-		case attr.Type.Equal(AppAWSCredentialProcessCredentialsASN1ExtensionOID):
-			val, ok := attr.Value.(string)
-			if ok {
-				id.RouteToApp.AWSCredentialProcessCredentials = val
-			}
 		case attr.Type.Equal(AppAzureIdentityASN1ExtensionOID):
 			val, ok := attr.Value.(string)
 			if ok {
@@ -1190,11 +1153,6 @@ func FromSubject(subject pkix.Name, expires time.Time) (*Identity, error) {
 			if ok {
 				id.BotInstanceID = val
 			}
-		case attr.Type.Equal(JoinTokenASN1ExtensionOID):
-			val, ok := attr.Value.(string)
-			if ok {
-				id.JoinToken = val
-			}
 		case attr.Type.Equal(AllowedResourcesASN1ExtensionOID):
 			allowedResourcesStr, ok := attr.Value.(string)
 			if ok {
@@ -1307,11 +1265,6 @@ func (id *Identity) IsMFAVerified() bool {
 	return id.MFAVerified != "" || id.PrivateKeyPolicy.MFAVerified()
 }
 
-// IsBot returns whether this identity belongs to a bot.
-func (id *Identity) IsBot() bool {
-	return id.BotName != ""
-}
-
 // CertificateRequest is a X.509 signing certificate request
 type CertificateRequest struct {
 	// Clock is a clock used to get current or test time
@@ -1373,13 +1326,13 @@ func (ca *CertAuthority) GenerateCertificate(req CertificateRequest) ([]byte, er
 		return nil, trace.Wrap(err)
 	}
 
-	logger.DebugContext(context.TODO(), "Generating TLS certificate",
-		"not_after", req.NotAfter,
-		"dns_names", req.DNSNames,
-		"key_usage", req.KeyUsage,
-		"common_name", req.Subject.CommonName,
-		"issuer_skid", base32.HexEncoding.EncodeToString(ca.Cert.SubjectKeyId),
-	)
+	log.WithFields(logrus.Fields{
+		"not_after":   req.NotAfter,
+		"dns_names":   req.DNSNames,
+		"key_usage":   req.KeyUsage,
+		"common_name": req.Subject.CommonName,
+		"issuer_skid": base32.HexEncoding.EncodeToString(ca.Cert.SubjectKeyId),
+	}).Debug("Generating TLS certificate")
 
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,

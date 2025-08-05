@@ -186,18 +186,6 @@ var SystemConnectors = []string{
 	HeadlessConnector,
 }
 
-// OIDCPKCEMode represents the mode of PKCE (Proof Key for Code Exchange).
-type OIDCPKCEMode string
-
-const (
-	// OIDCPKCEModeUnknown indicates an unknown or uninitialized state of the PKCE mode.
-	OIDCPKCEModeUnknown OIDCPKCEMode = ""
-	// OIDCPKCEModeEnabled indicates that PKCE is enabled for the OIDC flow.
-	OIDCPKCEModeEnabled OIDCPKCEMode = "enabled"
-	// OIDCPKCEModeDisabled indicates that PKCE is disabled for the OIDC flow.
-	OIDCPKCEModeDisabled OIDCPKCEMode = "disabled"
-)
-
 // SecondFactorType is the type of 2FA authentication.
 type SecondFactorType string
 
@@ -294,10 +282,6 @@ const (
 	// DeviceTrustModeRequired enforces the presence of device extensions for
 	// sensitive endpoints.
 	DeviceTrustModeRequired DeviceTrustMode = "required"
-	// DeviceTrustModeRequiredForHumans enforces the presence of device
-	// extensions for sensitive endpoints if the user is human. In this mode,
-	// bots are exempt from device trust checks.
-	DeviceTrustModeRequiredForHumans DeviceTrustMode = "required-for-humans"
 )
 
 const (
@@ -421,9 +405,6 @@ const (
 	// TraitGitHubOrgs is the name of the variable to specify the GitHub
 	// organizations for GitHub integration.
 	TraitGitHubOrgs = "github_orgs"
-	// TraitMCPTools is the name of the variable to specify the MCP tools for
-	// MCP servers.
-	TraitMCPTools = "mcp_tools"
 )
 
 const (
@@ -435,26 +416,6 @@ const (
 	// MaxAssumeStartDuration latest duration into the future an access request's assume
 	// start time can be
 	MaxAssumeStartDuration = time.Hour * 24 * 7
-)
-
-const (
-	// MaxHealthCheckInterval is the minimum interval between resource health
-	// checks.
-	MinHealthCheckInterval = 30 * time.Second
-	// MaxHealthCheckInterval is the maximum interval between resource health
-	// checks. Since timeout must be less than interval, this is effectively the
-	// maximum health check timeout as well.
-	MaxHealthCheckInterval = 600 * time.Second
-	// MinHealthCheckTimeout is the minimum resource health check timeout.
-	// There is no corresponding MaxHealthCheckTimeout, because timeout is
-	// bounded to be no greater than the interval.
-	MinHealthCheckTimeout = time.Second
-	// MaxHealthCheckHealthyThreshold is the maximum health check healthy
-	// threshold.
-	MaxHealthCheckHealthyThreshold = 10
-	// MaxHealthCheckUnhealthyThreshold is the maximum health check unhealthy
-	// threshold.
-	MaxHealthCheckUnhealthyThreshold = MaxHealthCheckHealthyThreshold
 )
 
 // Constants for TLS routing connection upgrade. See RFD for more details:

@@ -120,9 +120,6 @@ const (
 	// ComponentProxy is SSH proxy (SSH server forwarding connections)
 	ComponentProxy = "proxy"
 
-	// ComponentRelay is the component name for the relay service.
-	ComponentRelay = "relay"
-
 	// ComponentProxyPeer is the proxy peering component of the proxy service
 	ComponentProxyPeer = "proxy:peer"
 
@@ -292,20 +289,14 @@ const (
 	// ComponentUpdater represents the teleport-update binary.
 	ComponentUpdater = "updater"
 
-	// ComponentRolloutController represents the autoupdate_agent_rollout controller.
-	ComponentRolloutController = "rollout-controller"
-
 	// ComponentGit represents git proxy related services.
 	ComponentGit = "git"
 
 	// ComponentForwardingGit represents the SSH proxy that forwards Git commands.
 	ComponentForwardingGit = "git:forward"
 
-	// ComponentMCP represents the MCP server handler.
-	ComponentMCP = "mcp"
-
-	// ComponentRecordingEncryption represents recording encryption
-	ComponentRecordingEncryption = "recording-encryption"
+	// ComponentRolloutController represents the autoupdate_agent_rollout controller.
+	ComponentRolloutController = "rollout-controller"
 
 	// VerboseLogsEnvVar forces all logs to be verbose (down to DEBUG level)
 	VerboseLogsEnvVar = "TELEPORT_DEBUG"
@@ -430,6 +421,9 @@ const (
 	// LogsDir is a log subdirectory for events and logs
 	LogsDir = "log"
 
+	// Syslog is a mode for syslog logging
+	Syslog = "syslog"
+
 	// DebugLevel is a debug logging level name
 	DebugLevel = "debug"
 
@@ -529,9 +523,6 @@ const (
 	// Machine ID bot instance, if any. This identifier is persisted through
 	// certificate renewals.
 	CertExtensionBotInstanceID = "bot-instance-id@goteleport.com"
-	// CertExtensionJoinToken is the name of the join token used to join this
-	// bot, if any.
-	CertExtensionJoinToken = "join-token@goteleport.com"
 
 	// CertCriticalOptionSourceAddress is a critical option that defines IP addresses (in CIDR notation)
 	// from which this certificate is accepted for authentication.
@@ -666,10 +657,6 @@ const (
 	// TraitInternalGitHubOrgs is the variable used to store allowed GitHub
 	// organizations for GitHub integrations.
 	TraitInternalGitHubOrgs = "{{internal.github_orgs}}"
-
-	// TraitInternalMCPTools is the variable used to store allowed MCP tools for
-	// MCP servers.
-	TraitInternalMCPTools = "{{internal.mcp_tools}}"
 )
 
 // SCP is Secure Copy.
@@ -762,12 +749,6 @@ const (
 )
 
 var PresetRoles = []string{PresetEditorRoleName, PresetAccessRoleName, PresetAuditorRoleName}
-
-const (
-	// PresetDefaultHealthCheckConfigName is the name of a preset
-	// default health_check_config that enables health checks for all resources.
-	PresetDefaultHealthCheckConfigName = "default"
-)
 
 const (
 	// SystemAccessApproverUserName names a Teleport user that acts as

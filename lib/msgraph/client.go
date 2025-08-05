@@ -177,7 +177,7 @@ func (c *Client) request(ctx context.Context, method string, uri string, payload
 	}
 
 	var lastErr error
-	for range maxRetries {
+	for i := 0; i < maxRetries; i++ {
 		if retryAfter > 0 {
 			select {
 			case <-c.clock.After(retryAfter):
@@ -203,7 +203,7 @@ func (c *Client) request(ctx context.Context, method string, uri string, payload
 			lastErr = trace.Wrap(graphError)
 		} else {
 			// API did not return a valid error structure, best-effort reporting.
-			lastErr = trace.Errorf("%s", resp.Status)
+			lastErr = trace.Errorf(resp.Status)
 		}
 		if !isRetriable(resp.StatusCode) {
 			break

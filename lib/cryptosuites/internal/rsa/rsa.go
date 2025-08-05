@@ -44,19 +44,12 @@ func GenerateKey() (*rsa.PrivateKey, error) {
 	return getOrGenerateRSAPrivateKey()
 }
 
-// GenerateKey4096 generates a 4096-bit RSA private key meant for use in asymmetric encryption use cases such as
-// encrypted session recordings. It is exposed as a separate function from [GenerateKey] so that the precomputed
-// keys optimization used for sign/verify use cases does not have to be extended to support mixed key sizes.
-func GenerateKey4096() (*rsa.PrivateKey, error) {
-	return generateRSAPrivateKey(4096)
-}
-
 func getOrGenerateRSAPrivateKey() (*rsa.PrivateKey, error) {
 	select {
 	case k := <-PrecomputedKeys:
 		return k, nil
 	default:
-		rsaKeyPair, err := generateRSAPrivateKey(constants.RSAKeySize)
+		rsaKeyPair, err := generateRSAPrivateKey()
 		if err != nil {
 			return nil, err
 		}
@@ -64,15 +57,15 @@ func getOrGenerateRSAPrivateKey() (*rsa.PrivateKey, error) {
 	}
 }
 
-func generateRSAPrivateKey(bits int) (*rsa.PrivateKey, error) {
+func generateRSAPrivateKey() (*rsa.PrivateKey, error) {
 	//nolint:forbidigo // This is the one function allowed to generate RSA keys.
-	return rsa.GenerateKey(rand.Reader, bits)
+	return rsa.GenerateKey(rand.Reader, constants.RSAKeySize)
 }
 
 func precomputeKeys() {
 	const backoff = time.Second * 30
 	for {
-		rsaPrivateKey, err := generateRSAPrivateKey(constants.RSAKeySize)
+		rsaPrivateKey, err := generateRSAPrivateKey()
 		if err != nil {
 			log.ErrorContext(context.Background(), "Failed to precompute key pair, retrying (this might be a bug).",
 				slog.Any("error", err), slog.Duration("backoff", backoff))
