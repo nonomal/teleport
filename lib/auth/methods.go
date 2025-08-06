@@ -281,10 +281,10 @@ func (a *Server) authenticateUser(
 		// as part of certificate issuance in various scenarios (password change,
 		// non-session certificates, etc)
 		return a.verifyLocksForUserCerts(verifyLocksForUserCertsReq{
-			checker:     p.Checker,
-			defaultMode: p.ClusterLockingMode,
-			username:    user,
-			mfaVerified: mfaDev.Id,
+			unscopedChecker: p.Checker, // TODO(fspmarshall/scopes): add scope pinning/checker support here.
+			defaultMode:     p.ClusterLockingMode,
+			username:        user,
+			mfaVerified:     mfaDev.Id,
 		})
 	}
 	return verifyLocks, mfaDev, user, nil
@@ -723,12 +723,13 @@ func (a *Server) AuthenticateSSHUser(ctx context.Context, req authclient.Authent
 	}
 
 	certReq := certRequest{
-		user:                             user,
-		ttl:                              req.TTL,
-		sshPublicKey:                     req.SSHPublicKey,
-		tlsPublicKey:                     req.TLSPublicKey,
-		compatibility:                    req.CompatibilityMode,
-		checker:                          checker,
+		user:            user,
+		ttl:             req.TTL,
+		sshPublicKey:    req.SSHPublicKey,
+		tlsPublicKey:    req.TLSPublicKey,
+		compatibility:   req.CompatibilityMode,
+		unscopedChecker: checker,
+		// TODO(fspmarshall/scopes): add scope pinning/checker support here.
 		traits:                           user.GetTraits(),
 		routeToCluster:                   req.RouteToCluster,
 		kubernetesCluster:                req.KubernetesCluster,
