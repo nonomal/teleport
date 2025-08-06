@@ -169,30 +169,10 @@ func (p *recordingEncryptionParser) parse(event backend.Event) (types.Resource, 
 			services.WithRevision(event.Item.Revision),
 		)
 		if err != nil {
-			rotatedKey, rotKeyErr := services.UnmarshalProtoResource[*recordingencryptionv1.RotatedKey](
-				event.Item.Value,
-				services.WithExpires(event.Item.Expires),
-				services.WithRevision(event.Item.Revision),
-			)
-			if rotKeyErr != nil {
-				return nil, trace.Wrap(trace.NewAggregate(err, rotKeyErr), "unmarshaling resource from event")
-			}
-
-			return types.Resource153ToLegacy(rotatedKey), nil
+			return nil, trace.Wrap(err, "unmarshaling resource from event")
 		}
 		return types.Resource153ToLegacy(recordingEncryption), nil
 	case types.OpDelete:
-		if event.Item.Key.HasPrefix(backend.NewKey(recordingEncryptionPrefix, rotatedKeyPrefix)) {
-			header, err := services.UnmarshalProtoResource[*headerv1.ResourceHeader](
-				event.Item.Value,
-				services.WithExpires(event.Item.Expires),
-				services.WithRevision(event.Item.Revision),
-			)
-			if err != nil {
-				return nil, trace.Wrap(err, "unmarshaling deleted resource header")
-			}
-			return types.Resource153ToLegacy(header), nil
-		}
 		return &types.ResourceHeader{
 			Kind:    types.KindRecordingEncryption,
 			Version: types.V1,
@@ -200,6 +180,48 @@ func (p *recordingEncryptionParser) parse(event backend.Event) (types.Resource, 
 				Name: types.MetaNameRecordingEncryption,
 			},
 		}, nil
+	default:
+		return nil, trace.BadParameter("event %v is not supported", event.Type)
+	}
+}
+
+type rotatedKeyParser struct {
+	baseParser
+}
+
+func newRotatedKeyParser() *rotatedKeyParser {
+	return &rotatedKeyParser{
+		baseParser: newBaseParser(backend.NewKey(recordingEncryptionPrefix, rotatedKeyPrefix)),
+	}
+}
+
+func (p *rotatedKeyParser) parse(event backend.Event) (types.Resource, error) {
+	if !p.baseParser.match(event.Item.Key) {
+		return nil, nil
+	}
+
+	switch event.Type {
+	case types.OpPut:
+		rotatedKey, err := services.UnmarshalProtoResource[*recordingencryptionv1.RotatedKey](
+			event.Item.Value,
+			services.WithExpires(event.Item.Expires),
+			services.WithRevision(event.Item.Revision),
+		)
+		if err != nil {
+			return nil, trace.Wrap(err, "unmarshaling resource from event")
+		}
+
+		return types.Resource153ToLegacy(rotatedKey), nil
+	case types.OpDelete:
+		header, err := services.UnmarshalProtoResource[*headerv1.ResourceHeader](
+			event.Item.Value,
+			services.WithExpires(event.Item.Expires),
+			services.WithRevision(event.Item.Revision),
+		)
+		if err != nil {
+			return nil, trace.Wrap(err, "unmarshaling deleted resource header")
+		}
+		return types.Resource153ToLegacy(header), nil
 	default:
 		return nil, trace.BadParameter("event %v is not supported", event.Type)
 	}

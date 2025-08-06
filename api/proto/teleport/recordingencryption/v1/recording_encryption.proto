@@ -69,7 +69,12 @@ message RecordingEncryption {
 
 // A rotated keypair with its fingerprint.
 message RotatedKeySpec {
+  // The fingerprint of the included public key which is a hex encoded SHA256 hash of its PKIX form.
+  // This should also be used as the lookup key for a RotatedKey resource.
   string fingerprint = 1;
+  // The rotated key pair previously used with age to wrap and unwrap file keys for session recording
+  // encryption. The public key and fingerprint help to identify specific keys and the private key is
+  // saved for historical replay purposes.
   types.EncryptionKeyPair encryption_key_pair = 2;
 }
 
