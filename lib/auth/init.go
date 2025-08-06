@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+	"github.com/google/uuid"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/otel/attribute"
@@ -1578,9 +1579,14 @@ func GenerateIdentity(a *Server, id state.IdentityID, additionalPrincipals, dnsN
 		return nil, trace.Wrap(err)
 	}
 
+	hostUUID := id.HostUUID
+	if hostUUID == "" {
+		hostUUID = uuid.NewString()
+	}
+
 	certs, err := a.GenerateHostCerts(context.Background(),
 		&proto.HostCertsRequest{
-			HostID:               id.HostUUID,
+			HostID:               hostUUID,
 			NodeName:             id.NodeName,
 			Role:                 id.Role,
 			AdditionalPrincipals: additionalPrincipals,

@@ -2300,7 +2300,6 @@ func TestIdentityChecker(t *testing.T) {
 
 			identity, err := auth.GenerateIdentity(authServer, state.IdentityID{
 				Role:     types.RoleNode,
-				HostUUID: uuid.New().String(),
 				NodeName: "node-1",
 			}, nil, nil)
 			require.NoError(t, err)

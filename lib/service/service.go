@@ -737,7 +737,10 @@ func (process *TeleportProcess) OnHeartbeat(component string) func(err error) {
 func (process *TeleportProcess) findStaticIdentity(id state.IdentityID) (*state.Identity, error) {
 	for i := range process.Config.Identities {
 		identity := process.Config.Identities[i]
-		if identity.ID.Equals(id) {
+		switch {
+		case id.HostUUID == "" && id.Role == identity.ID.Role:
+			return identity, nil
+		case id.HostUUID != "" && identity.ID.Equals(id):
 			return identity, nil
 		}
 	}
@@ -910,7 +913,6 @@ func (process *TeleportProcess) getIdentity(role types.SystemRole) (i *state.Ide
 
 	id := state.IdentityID{
 		Role:     role,
-		HostUUID: process.Config.HostUUID,
 		NodeName: process.Config.Hostname,
 	}
 	if role == types.RoleAdmin {
@@ -928,12 +930,12 @@ func (process *TeleportProcess) getIdentity(role types.SystemRole) (i *state.Ide
 		return i, nil
 	}
 
-	// try to locate static identity provided in the file
+	// Try to locate static identity
 	i, err = process.findStaticIdentity(id)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	process.logger.InfoContext(process.ExitContext(), "Found static identity in the config file, writing to disk.", "identity", logutils.StringerAttr(&id))
+	process.logger.InfoContext(process.ExitContext(), "Found static identity, writing to disk.", "identity", logutils.StringerAttr(&id))
 	if err = process.storage.WriteIdentity(state.IdentityCurrent, *i); err != nil {
 		return nil, trace.Wrap(err)
 	}
