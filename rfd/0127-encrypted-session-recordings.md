@@ -273,9 +273,8 @@ option go_package = "github.com/gravitational/teleport/api/gen/proto/go/teleport
 // encrypting session recordings and uploading encrypted recordings captures in an
 // async recording mode.
 service RecordingEncryptionService {
-  // RotateRecordingEncryptionKey rotates the key pair used for encrypting session
-  // recording data.
-  rpc RotateRecordingEncryptionKey(RotateRecordingEncryptionKeyRequest) returns (RotateRecordingEncryptionKeyResponse);
+  // RotateKey rotates the key pair used for encrypting session recording data.
+  rpc RotateKey(RotateRecordingEncryptionKeyRequest) returns (RotateRecordingEncryptionKeyResponse);
   // GetRotationState returns whether or not a key rotation is in progress.
   rpc GetRotationState(GetRotationStateRequest) returns (GetRotationStateResponse);
   // CompleteRotation moves rotated keys out of the active set.
@@ -293,22 +292,14 @@ service RecordingEncryptionService {
   rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
 }
 
-// RotateRecordingEncryptionKeyRequest
-message RotateRecordingEncryptionKeyRequest {}
+// RotateKeyRequest
+message RotateKeyRequest {}
 
-// RotateRecordingEncryptionKeyResponse
-message RotateRecordingEncryptionKeyResponse {}
+// RotateKeyResponse
+message RotateKeyResponse {}
 
 // GetRotationStateRequest
 message GetRotationStateRequest {}
-
-// AgeEncryptionKeyWithState reports the KeyState for a given public key.
-message AgeEncryptionKeyWithState {
-  // PublicKey is PEM encoded RSA4096 public key associated with the KeyState.
-  bytes public_key = 1;
-  // KeyState is the state PublicKey is currently in.
-  teleport.recordingencryption.v1.KeyState key_state = 2;
-}
 
 // GetRotationStateResponse returns whether or not a key rotation is in
 // progress.
@@ -351,7 +342,7 @@ message CreateUploadResponse {
   Upload upload = 1;
 }
 
-// UploadPartRequest is an indivdual part to be uploaded.
+// UploadPartRequest is an individual part to be uploaded.
 message UploadPartRequest {
   // Upload represents the encrypted session to upload the part to.
   Upload upload = 1;
@@ -557,7 +548,7 @@ this, we can create share-able KMS keys using the following flow:
   private key, and save it for future sharing.
 - Import the generated asymmetric key back into KMS. This requires reencrypting
   in software and exposes the private key to the Teleport process.
-- Decrypti file keys for replay within KMS using the imported asymmetric key.
+- Decrypt file keys for replay within KMS using the imported asymmetric key.
 - New auth server enters cluster and detects an inaccessible key.
 - New auth server adds an "unfulfilled" key to the active keys list along with
   a public import key.
@@ -706,7 +697,8 @@ session recordings ever recorded, we will need to provide a rotation process.
 This will require exposing a new set of RPCs as previously defined in the
 recording encryption service protobuf.
 
-![encryption](assets/0127-key-rotation.png)
+![complete](assets/0127-completed-rotation.png)
+![rollback](assets/0127-completed-rotation.png)
 
 When an auth server receives a `RotateRecordingEncryptionKey` RPC call, it
 will:
@@ -773,12 +765,8 @@ has been marked as inaccessible.
 
 ### Security
 
-Protection of key material invovled with encrypting session recordings is
-largely managed by our existing keystore features. The one exception being key
-exchange between keystores unable to share keys directly (e.g. AWS KMS). In
-these cases the private key used to decrypt recording file keys is exposed to
-memory owned by auth server processes. This key should never be saved or cached
-and should only be exposed long enough to encrypt it to complete key exchange.
+Protection of key material involved with encrypting session recordings is
+largely managed by our existing keystore features.
 
 One of the primary concerns outside of key management is ensuring that session
 recording data is always encrypted before landing on disk or in long term
