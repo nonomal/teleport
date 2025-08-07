@@ -301,11 +301,18 @@ message RotateKeyResponse {}
 // GetRotationStateRequest
 message GetRotationStateRequest {}
 
-// GetRotationStateResponse returns whether or not a key rotation is in
-// progress.
+// A public key fingerprint coupled with its current state.
+message FingerprintWithState {
+  // A fingerprint identifying the public key of a KeyPair.
+  string fingerprint = 1;
+  // The state associated with the identified KeyPair.
+  v1.KeyPairState state = 2;
+}
+
+// The current state of all active encryption key pairs.
 message GetRotationStateResponse {
-  // State represents whether or not a recording key rotation is in progress.
-  teleport.recordingencryption.v1.KeyState state = 1;
+  // The state of all encryption key pairs.
+  repeated FingerprintWithState key_states = 1;
 }
 
 // CompleteRotationRequest
@@ -740,7 +747,7 @@ encryption key. This command will output a status message conveying whether or
 not rotation was successful or not.
 
 ```bash
-tctl recordings encryption rotate complete
+tctl recordings encryption complete-rotation
 ```
 
 A successful rotation can be completed using the `complete` subcommand. It will
@@ -748,7 +755,7 @@ call the `CompleteRotation` RPC and move all keys marked as `rotated` to a new
 `RotatedKeys` resource keyed on the REK public key they relate to.
 
 ```bash
-tctl recordings encryption rotate rollback
+tctl recordings encryption rollback-rotation
 ```
 
 A rotation can be cancelled and rolled back using the `rollback` sub command.
@@ -756,12 +763,14 @@ It will call the `RollbackRecordingEncryptionRotation` RPC which removes all
 new keys and marks all `rotated` keys as `active`.
 
 ```bash
-tctl recordings encryption rotate --status
+tctl recordings encryption status
 ```
 
-Including the `--status` flag issues a request to the `GetRotationState` RPC to
-return whether or not a key rotation is in progress or if the new active key
-has been marked as inaccessible.
+The rotation status of active encryption keys can be queried using the `status`
+subcommand. It will issue a request to the `GetRotationState` RPC and determine
+rotation status by inspecting individual key states. At least one key in the
+`rotating` state means a rotation is already in progress and at least one key
+in the `inaccessible` state means that the rotation is in a failure state.
 
 ### Security
 
@@ -780,35 +789,40 @@ default.
 
 For the most part, the user experience of encrypted session recordings is
 identical to non-encrypted session recordings. The only notable change is the
-addition of the `tctl recordings encryption rotate` subcommand for rotating keys
+addition of the `tctl recordings encryption` subcommands for rotating keys
 related to encrypted session recording.
 
 ### Teleport admin rotating session recording encryption keys
 
-```bash
-tctl recordings encryption rotate
+```
+$ tctl recordings encryption rotate
 ```
 
 ### Teleport admin querying status of ongoing rotation
 
-```bash
-tctl recordings encryption rotate --status
+```
+$ tctl recordings encryption status
 
-"Rotation waiting for completion"
+Rotation in progress
+
+Key Pair Fingerprint                                             State
+---------------------------------------------------------------- --------
+48303729235b962c69940fe4cc9d47fcd6f5dd3bcbd149a6d4944098ce01b84c rotating
+8a8581543c70cd2ed5e993080670aefec2c620ef792730f020cb463350adeccb active
 ```
 
 ### Teleport admin cancelling an ongoing rotation
 
-```bash
-tctl recordings encryption rotate rollback
+```
+$ tctl recordings encryption rollback-rotation
+Rotation rolled back
 ```
 
 ### Teleport admin completing a finished rotation
 
-```bash
-tctl recordings encryption rotate complete
-
-"Rotation complete"
+```
+$ tctl recordings encryption complete-rotation
+Rotation complete
 ```
 
 ### Teleport admin replaying encrypted session recording using `tsh`
