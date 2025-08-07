@@ -4480,10 +4480,12 @@ func (a *ServerWithRoles) ListRoles(ctx context.Context, req *proto.ListRolesReq
 	}, nil
 }
 
-// ListRequestableRoles is a paginated requestable role getter.
+// ListRequestableRoles is a paginated requestable role getter. Unlike ListRoles, this only returns a list of roles that the user can request in an access request.
+// This does not use the resource verbs for RBAC, and all users are allowed to call this endpoint. The requestable roles returned here are only the ones that the user
+// has been granted permission to request. If a user has not been granted permission to request any roles, this will return an empty list.
 func (a *ServerWithRoles) ListRequestableRoles(ctx context.Context, req *proto.ListRequestableRolesRequest) (*proto.ListRequestableRolesResponse, error) {
-	if req.Limit == 0 || req.Limit > apidefaults.DefaultChunkSize {
-		req.Limit = apidefaults.DefaultChunkSize
+	if req.PageSize == 0 || req.PageSize > apidefaults.DefaultChunkSize {
+		req.PageSize = apidefaults.DefaultChunkSize
 	}
 
 	requestValidator, err := services.NewRequestValidator(ctx, a.authServer.clock, a.authServer.Services, a.context.GetUserMetadata().User)
@@ -4492,35 +4494,26 @@ func (a *ServerWithRoles) ListRequestableRoles(ctx context.Context, req *proto.L
 	}
 
 	// Convert ListRequestableRolesRequest to ListRolesRequest for compatibility with `IterateRoles`
+	var roleFilter *types.RoleFilter
+	if req.Filter != nil {
+		roleFilter = &types.RoleFilter{
+			SearchKeywords:  req.Filter.SearchKeywords,
+			SkipSystemRoles: req.Filter.SkipSystemRoles,
+		}
+	}
+
 	listReq := &proto.ListRolesRequest{
-		Limit:    req.Limit,
+		Limit:    req.PageSize,
 		StartKey: req.PageToken,
-		Filter:   req.Filter,
+		Filter:   roleFilter,
 	}
 
-	matchFunc, err := buildRequestableRoleMatchFunc(requestValidator, listReq)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	out, nextKey, err := a.authServer.IterateRoles(ctx, listReq, matchFunc)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	return &proto.ListRequestableRolesResponse{
-		RequestableRoles: RolesToRequestableRoles(out),
-		NextPageToken:    nextKey,
-	}, nil
-}
-
-// BuildRequestableRoleMatchFunc builds the MatchFunc for listing requestable roles that only matches roles that the user can request.
-func buildRequestableRoleMatchFunc(requestValidator services.RequestValidator, req *proto.ListRolesRequest) (func(role *types.RoleV6) (bool, error), error) {
+	// matchFunc is the function that will be run on each retrieved role to verify that it is requestable and matches the provided filters (if any).
 	matchFunc := func(role *types.RoleV6) (bool, error) {
 		roleName := role.GetName()
 
 		// Apply any RoleFilters if defined.
-		if req.Filter != nil && !req.Filter.Match(role) {
+		if req.Filter != nil && !listReq.Filter.Match(role) {
 			return false, nil
 		}
 
@@ -4531,14 +4524,22 @@ func buildRequestableRoleMatchFunc(requestValidator services.RequestValidator, r
 		return false, nil
 	}
 
-	return matchFunc, nil
+	out, nextKey, err := a.authServer.IterateRoles(ctx, listReq, matchFunc)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return &proto.ListRequestableRolesResponse{
+		Roles:         convertRolesToRequestableRoles(out),
+		NextPageToken: nextKey,
+	}, nil
 }
 
-// NewRequestableRoles converts a list of roles to RequestableRoles, stripping all data except the name and description.
-func RolesToRequestableRoles(roles []*types.RoleV6) []*types.RequestableRole {
-	items := make([]*types.RequestableRole, 0, len(roles))
+// convertRolesToRequestableRoles turns a slice of Roles into RequestableRoles, stripping all data except the name and description.
+func convertRolesToRequestableRoles(roles []*types.RoleV6) []*proto.ListRequestableRolesResponse_RequestableRole {
+	items := make([]*proto.ListRequestableRolesResponse_RequestableRole, 0, len(roles))
 	for _, role := range roles {
-		item := &types.RequestableRole{
+		item := &proto.ListRequestableRolesResponse_RequestableRole{
 			Name:        role.GetName(),
 			Description: role.GetMetadata().Description,
 		}

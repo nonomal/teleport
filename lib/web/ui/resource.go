@@ -24,6 +24,7 @@ import (
 	yaml "github.com/ghodss/yaml"
 	"github.com/gravitational/trace"
 
+	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 )
 
@@ -85,6 +86,21 @@ type RequestableRole struct {
 	Name string `json:"name"`
 	// Description is the role description.
 	Description string `json:"description,omitempty"`
+}
+
+// NewUIRequestableRoles converts a slice of proto.ListRequestableRolesResponse_RequestableRole into a slice of ui.RequestableRole
+func NewUIRequestableRoles(roles []*proto.ListRequestableRolesResponse_RequestableRole) []RequestableRole {
+	out := make([]RequestableRole, 0, len(roles))
+	for _, role := range roles {
+		item := &RequestableRole{
+			Name:        role.Name,
+			Description: role.Description,
+		}
+
+		out = append(out, *item)
+	}
+
+	return out
 }
 
 // NewGithubConnectors creates resource item for each github connector.

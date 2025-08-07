@@ -23,6 +23,7 @@ import "teleport/attestation/v1/attestation.proto";
 import "teleport/legacy/client/proto/certs.proto";
 import "teleport/legacy/client/proto/event.proto";
 import "teleport/legacy/client/proto/inventory.proto";
+import "teleport/legacy/client/proto/requestable_roles.proto";
 import "teleport/legacy/types/events/events.proto";
 import "teleport/legacy/types/types.proto";
 import "teleport/legacy/types/webauthn/webauthn.proto";
@@ -1151,29 +1152,6 @@ message ListRolesResponse {
 
   // NextKey will serve as the StartKey for the next page of roles.
   string NextKey = 2;
-}
-
-// ListRequestableRolesRequest is the request to list requestable roles.
-message ListRequestableRolesRequest {
-  // Limit is the maximum amount of roles per page.
-  int32 Limit = 1;
-
-  // PageToken is used to resume a query in order to enable pagination.
-  // If the previous response had LastKey set then this should be
-  // set to its value. Otherwise leave empty.
-  string PageToken = 2;
-
-  // Filter matches roles.
-  types.RoleFilter Filter = 3;
-}
-
-// ListRequestableRolesResponse is a page of requestable roles.
-message ListRequestableRolesResponse {
-  // RequestableRoles is a page of requestable roles.
-  repeated types.RequestableRole RequestableRoles = 1;
-
-  // NextPageToken will serve as the StartKey for the next page of roles.
-  string NextPageToken = 2;
 }
 
 // Request for CreateRole.

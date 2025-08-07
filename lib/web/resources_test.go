@@ -927,7 +927,7 @@ func Test_newKubeListRequest(t *testing.T) {
 
 // TestListRequestableRoles tests the /webapi/requestableroles endpoint
 func TestListRequestableRoles(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	env := newWebPack(t, 1)
 	proxy := env.proxies[0]
 
@@ -975,11 +975,11 @@ func TestListRequestableRoles(t *testing.T) {
 	err = json.Unmarshal(resp.Bytes(), &response)
 	require.NoError(t, err)
 
-	requestableRoles, ok := response.Items.([]interface{})
+	requestableRoles, ok := response.Items.([]any)
 	require.True(t, ok)
 	require.Len(t, requestableRoles, 1)
 
-	roleItem, ok := requestableRoles[0].(map[string]interface{})
+	roleItem, ok := requestableRoles[0].(map[string]any)
 	require.True(t, ok)
 
 	roleName, ok := roleItem["name"].(string)

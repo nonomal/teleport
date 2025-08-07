@@ -103,9 +103,9 @@ func (h *Handler) listRequestableRolesHandle(w http.ResponseWriter, r *http.Requ
 	}
 
 	rolesReq := &proto.ListRequestableRolesRequest{
-		Limit:     limit,
+		PageSize:  limit,
 		PageToken: values.Get("startKey"),
-		Filter: &types.RoleFilter{
+		Filter: &proto.ListRequestableRolesRequest_Filter{
 			SearchKeywords:  client.ParseSearchKeywords(values.Get("search"), ' '),
 			SkipSystemRoles: true,
 		},
@@ -117,7 +117,7 @@ func (h *Handler) listRequestableRolesHandle(w http.ResponseWriter, r *http.Requ
 	}
 
 	return &listResourcesWithoutCountGetResponse{
-		Items:    resp.RequestableRoles,
+		Items:    ui.NewUIRequestableRoles(resp.Roles),
 		StartKey: resp.NextPageToken,
 	}, nil
 }
