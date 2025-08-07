@@ -413,7 +413,7 @@ func (x *CompleteUploadRequest) GetParts() []*Part {
 	return nil
 }
 
-// CompleteUploadResponse is the empty return value of a CompleteUpload request.
+// The empty body of a CompleteUpload request.
 type CompleteUploadResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -487,7 +487,7 @@ func (*RotateKeyRequest) Descriptor() ([]byte, []int) {
 	return file_teleport_recordingencryption_v1_recording_encryption_service_proto_rawDescGZIP(), []int{8}
 }
 
-// The empty return value of a RotateKey response.
+// The empty return value of a RotateKey request.
 type RotateKeyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -562,28 +562,30 @@ func (*GetRotationStateRequest) Descriptor() ([]byte, []int) {
 }
 
 // A public key fingerprint coupled with its current state.
-type KeyWithState struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Fingerprint   string                 `protobuf:"bytes,1,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
-	State         KeyState               `protobuf:"varint,2,opt,name=state,proto3,enum=teleport.recordingencryption.v1.KeyState" json:"state,omitempty"`
+type FingerprintWithState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A fingerprint identifying the public key of a KeyPair.
+	Fingerprint string `protobuf:"bytes,1,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	// The state associated with the identified KeyPair.
+	State         KeyPairState `protobuf:"varint,2,opt,name=state,proto3,enum=teleport.recordingencryption.v1.KeyPairState" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *KeyWithState) Reset() {
-	*x = KeyWithState{}
+func (x *FingerprintWithState) Reset() {
+	*x = FingerprintWithState{}
 	mi := &file_teleport_recordingencryption_v1_recording_encryption_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *KeyWithState) String() string {
+func (x *FingerprintWithState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*KeyWithState) ProtoMessage() {}
+func (*FingerprintWithState) ProtoMessage() {}
 
-func (x *KeyWithState) ProtoReflect() protoreflect.Message {
+func (x *FingerprintWithState) ProtoReflect() protoreflect.Message {
 	mi := &file_teleport_recordingencryption_v1_recording_encryption_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -595,29 +597,30 @@ func (x *KeyWithState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use KeyWithState.ProtoReflect.Descriptor instead.
-func (*KeyWithState) Descriptor() ([]byte, []int) {
+// Deprecated: Use FingerprintWithState.ProtoReflect.Descriptor instead.
+func (*FingerprintWithState) Descriptor() ([]byte, []int) {
 	return file_teleport_recordingencryption_v1_recording_encryption_service_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *KeyWithState) GetFingerprint() string {
+func (x *FingerprintWithState) GetFingerprint() string {
 	if x != nil {
 		return x.Fingerprint
 	}
 	return ""
 }
 
-func (x *KeyWithState) GetState() KeyState {
+func (x *FingerprintWithState) GetState() KeyPairState {
 	if x != nil {
 		return x.State
 	}
-	return KeyState_KEY_STATE_UNSPECIFIED
+	return KeyPairState_KEY_PAIR_STATE_UNSPECIFIED
 }
 
-// The empty body of a GetRotationState response.
+// The current state of all active encryption key pairs.
 type GetRotationStateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Keys          []*KeyWithState        `protobuf:"bytes,1,rep,name=keys,proto3" json:"keys,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The state of all encryption key pairs.
+	KeyPairs      []*FingerprintWithState `protobuf:"bytes,1,rep,name=key_pairs,json=keyPairs,proto3" json:"key_pairs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -652,9 +655,9 @@ func (*GetRotationStateResponse) Descriptor() ([]byte, []int) {
 	return file_teleport_recordingencryption_v1_recording_encryption_service_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *GetRotationStateResponse) GetKeys() []*KeyWithState {
+func (x *GetRotationStateResponse) GetKeyPairs() []*FingerprintWithState {
 	if x != nil {
-		return x.Keys
+		return x.KeyPairs
 	}
 	return nil
 }
@@ -696,7 +699,7 @@ func (*CompleteRotationRequest) Descriptor() ([]byte, []int) {
 	return file_teleport_recordingencryption_v1_recording_encryption_service_proto_rawDescGZIP(), []int{13}
 }
 
-// The empty return value of a CompleteRotation response.
+// The empty return value of a CompleteRotation request.
 type CompleteRotationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -770,7 +773,7 @@ func (*RollbackRotationRequest) Descriptor() ([]byte, []int) {
 	return file_teleport_recordingencryption_v1_recording_encryption_service_proto_rawDescGZIP(), []int{15}
 }
 
-// The empty return value of a RollbackRotation response.
+// The empty return value of a RollbackRotation request
 type RollbackRotationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -839,12 +842,12 @@ const file_teleport_recordingencryption_v1_recording_encryption_service_proto_ra
 	"\x16CompleteUploadResponse\"\x12\n" +
 	"\x10RotateKeyRequest\"\x13\n" +
 	"\x11RotateKeyResponse\"\x19\n" +
-	"\x17GetRotationStateRequest\"q\n" +
-	"\fKeyWithState\x12 \n" +
-	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\x12?\n" +
-	"\x05state\x18\x02 \x01(\x0e2).teleport.recordingencryption.v1.KeyStateR\x05state\"]\n" +
-	"\x18GetRotationStateResponse\x12A\n" +
-	"\x04keys\x18\x01 \x03(\v2-.teleport.recordingencryption.v1.KeyWithStateR\x04keys\"\x19\n" +
+	"\x17GetRotationStateRequest\"}\n" +
+	"\x14FingerprintWithState\x12 \n" +
+	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\x12C\n" +
+	"\x05state\x18\x02 \x01(\x0e2-.teleport.recordingencryption.v1.KeyPairStateR\x05state\"n\n" +
+	"\x18GetRotationStateResponse\x12R\n" +
+	"\tkey_pairs\x18\x01 \x03(\v25.teleport.recordingencryption.v1.FingerprintWithStateR\bkeyPairs\"\x19\n" +
 	"\x17CompleteRotationRequest\"\x1a\n" +
 	"\x18CompleteRotationResponse\"\x19\n" +
 	"\x17RollbackRotationRequest\"\x1a\n" +
@@ -884,14 +887,14 @@ var file_teleport_recordingencryption_v1_recording_encryption_service_proto_goTy
 	(*RotateKeyRequest)(nil),         // 8: teleport.recordingencryption.v1.RotateKeyRequest
 	(*RotateKeyResponse)(nil),        // 9: teleport.recordingencryption.v1.RotateKeyResponse
 	(*GetRotationStateRequest)(nil),  // 10: teleport.recordingencryption.v1.GetRotationStateRequest
-	(*KeyWithState)(nil),             // 11: teleport.recordingencryption.v1.KeyWithState
+	(*FingerprintWithState)(nil),     // 11: teleport.recordingencryption.v1.FingerprintWithState
 	(*GetRotationStateResponse)(nil), // 12: teleport.recordingencryption.v1.GetRotationStateResponse
 	(*CompleteRotationRequest)(nil),  // 13: teleport.recordingencryption.v1.CompleteRotationRequest
 	(*CompleteRotationResponse)(nil), // 14: teleport.recordingencryption.v1.CompleteRotationResponse
 	(*RollbackRotationRequest)(nil),  // 15: teleport.recordingencryption.v1.RollbackRotationRequest
 	(*RollbackRotationResponse)(nil), // 16: teleport.recordingencryption.v1.RollbackRotationResponse
 	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
-	(KeyState)(0),                    // 18: teleport.recordingencryption.v1.KeyState
+	(KeyPairState)(0),                // 18: teleport.recordingencryption.v1.KeyPairState
 }
 var file_teleport_recordingencryption_v1_recording_encryption_service_proto_depIdxs = []int32{
 	17, // 0: teleport.recordingencryption.v1.Upload.initiated_at:type_name -> google.protobuf.Timestamp
@@ -900,8 +903,8 @@ var file_teleport_recordingencryption_v1_recording_encryption_service_proto_depI
 	4,  // 3: teleport.recordingencryption.v1.UploadPartResponse.part:type_name -> teleport.recordingencryption.v1.Part
 	0,  // 4: teleport.recordingencryption.v1.CompleteUploadRequest.upload:type_name -> teleport.recordingencryption.v1.Upload
 	4,  // 5: teleport.recordingencryption.v1.CompleteUploadRequest.parts:type_name -> teleport.recordingencryption.v1.Part
-	18, // 6: teleport.recordingencryption.v1.KeyWithState.state:type_name -> teleport.recordingencryption.v1.KeyState
-	11, // 7: teleport.recordingencryption.v1.GetRotationStateResponse.keys:type_name -> teleport.recordingencryption.v1.KeyWithState
+	18, // 6: teleport.recordingencryption.v1.FingerprintWithState.state:type_name -> teleport.recordingencryption.v1.KeyPairState
+	11, // 7: teleport.recordingencryption.v1.GetRotationStateResponse.key_pairs:type_name -> teleport.recordingencryption.v1.FingerprintWithState
 	1,  // 8: teleport.recordingencryption.v1.RecordingEncryptionService.CreateUpload:input_type -> teleport.recordingencryption.v1.CreateUploadRequest
 	3,  // 9: teleport.recordingencryption.v1.RecordingEncryptionService.UploadPart:input_type -> teleport.recordingencryption.v1.UploadPartRequest
 	6,  // 10: teleport.recordingencryption.v1.RecordingEncryptionService.CompleteUpload:input_type -> teleport.recordingencryption.v1.CompleteUploadRequest
