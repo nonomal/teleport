@@ -8,7 +8,6 @@ PRs with corrections and updates are welcome!
   [go.mod](https://github.com/gravitational/teleport/blob/master/go.mod#L3)
 
   * Follow [official instructions](https://go.dev/doc/install) to install `Go`
-    * **On an M1 Mac, download ARM64 installer from https://go.dev/dl/**
     * Download the installer for `<version from go.mod>`
     * After installing, don't forget to `export PATH="/usr/local/go/bin:$PATH"` in `~/.zprofile`
     * If you need other go versions, see https://go.dev/doc/manage-install
@@ -81,7 +80,7 @@ PRs with corrections and updates are welcome!
   * `brew install node corepack`
   * `corepack enable pnpm`
   * The `Rust` and `Cargo` version in [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/versions.mk#L11) (search for `RUST_VERSION`) are required.
-  * The [`wasm-pack`](https://github.com/rustwasm/wasm-pack) version in [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/versions.mk#L12) (search for `WASM_PACK_VERSION`) is required:
+  * The [`wasm-pack`](https://github.com/rustwasm/wasm-pack) version in [build.assets/Makefile](https://github.com/gravitational/teleport/blob/master/build.assets/versions.mk) (search for `WASM_PACK_VERSION`) is required:
     `curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh`
 
 ##### Local Tests Dependencies
@@ -92,7 +91,7 @@ To run a full test suite locally, you will need
 
   ```shell
   brew install helm
-  helm plugin install https://github.com/quintush/helm-unittest
+  helm plugin install https://github.com/quintush/helm-unittest --version 0.2.11
   ```
 
 * `bats-core` version from [build.assets/Dockerfile](https://github.com/gravitational/teleport/blob/master/build.assets/Dockerfile#L183) (search for `bats-core`)
