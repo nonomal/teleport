@@ -36,6 +36,7 @@ type KeyRotater interface {
 	RotateKey(context.Context) error
 	CompleteRotation(context.Context) error
 	RollbackRotation(context.Context) error
+	GetRotationState(context.Context) ([]*recordingencryptionv1.FingerprintWithState, error)
 }
 
 // ServiceConfig captures everything a [Service] requires to fulfill requests.
