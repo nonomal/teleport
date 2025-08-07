@@ -280,55 +280,56 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 	case err := <-errCh:
 		t.Fatalf("Received error on errCh instead of ready signal: %v", err)
 	case <-readyCh:
-		// Port forwarding is ready.
-		ports, err := fw.GetPorts()
-		require.NoError(t, err)
-
-		g, _ := errgroup.WithContext(t.Context())
-		for _, port := range ports {
-			p := port
-
-			g.Go(func() error {
-				// Add a random delay to encourage race conditions.
-				time.Sleep(time.Duration(rand.IntN(20)) * time.Millisecond)
-
-				conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", p.Local))
-				if err != nil {
-					return fmt.Errorf("port %d dial failed: %w", p.Local, err)
-				}
-				defer conn.Close()
-
-				testData := []byte(fmt.Sprintf("test-data-port-%d", p.Local))
-				_, err = conn.Write(testData)
-				if err != nil {
-					return fmt.Errorf("port %d write failed: %w", p.Local, err)
-				}
-
-				// Set read timeout to avoid hanging.
-				if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-					return fmt.Errorf("port %d failed to set read deadline: %w", p.Local, err)
-				}
-
-				// Read from source.
-				buf := make([]byte, 1024)
-				n, err := conn.Read(buf)
-				if err != nil {
-					return fmt.Errorf("port %d read failed: %w", p.Local, err)
-				}
-
-				expected := fmt.Sprintf("%s%s%s", testingkubemock.PortForwardPayload, podName, string(testData))
-				if !strings.Contains(string(buf[:n]), expected) {
-					return fmt.Errorf("port %d unexpected response: got %q, want substring %q",
-						p.Local, string(buf[:n]), expected)
-				}
-
-				return nil
-			})
-		}
-
-		err = g.Wait()
-		require.NoError(t, err, "Port forwarding checks failed")
 	}
+	
+	// Port forwarding is ready.
+	ports, err := fw.GetPorts()
+	require.NoError(t, err)
+
+	g, _ := errgroup.WithContext(t.Context())
+	for _, port := range ports {
+		p := port
+
+		g.Go(func() error {
+			// Add a random delay to encourage race conditions.
+			time.Sleep(time.Duration(rand.IntN(20)) * time.Millisecond)
+
+			conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", p.Local))
+			if err != nil {
+				return fmt.Errorf("port %d dial failed: %w", p.Local, err)
+			}
+			defer conn.Close()
+
+			testData := []byte(fmt.Sprintf("test-data-port-%d", p.Local))
+			_, err = conn.Write(testData)
+			if err != nil {
+				return fmt.Errorf("port %d write failed: %w", p.Local, err)
+			}
+
+			// Set read timeout to avoid hanging.
+			if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+				return fmt.Errorf("port %d failed to set read deadline: %w", p.Local, err)
+			}
+
+			// Read from source.
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			if err != nil {
+				return fmt.Errorf("port %d read failed: %w", p.Local, err)
+			}
+
+			expected := fmt.Sprintf("%s%s%s", testingkubemock.PortForwardPayload, podName, string(testData))
+			if !strings.Contains(string(buf[:n]), expected) {
+				return fmt.Errorf("port %d unexpected response: got %q, want substring %q",
+					p.Local, string(buf[:n]), expected)
+			}
+
+			return nil
+		})
+	}
+
+	err = g.Wait()
+	require.NoError(t, err, "Port forwarding checks failed")
 }
 
 func portforwardURL(namespace, podName string, host string, query string) (*url.URL, error) {
