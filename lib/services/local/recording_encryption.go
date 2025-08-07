@@ -128,7 +128,6 @@ func (s *RecordingEncryptionService) CreateRotatedKey(ctx context.Context, key *
 		},
 		Kind: types.KindRotatedKey,
 		Spec: &recordingencryptionv1.RotatedKeySpec{
-			Fingerprint:       fp,
 			EncryptionKeyPair: key,
 		},
 	})
@@ -152,7 +151,7 @@ type recordingEncryptionParser struct {
 
 func newRecordingEncryptionParser() *recordingEncryptionParser {
 	return &recordingEncryptionParser{
-		baseParser: newBaseParser(backend.NewKey(recordingEncryptionPrefix)),
+		baseParser: newBaseParser(backend.NewKey(recordingEncryptionPrefix, types.MetaNameRecordingEncryption)),
 	}
 }
 
@@ -196,10 +195,6 @@ func newRotatedKeyParser() *rotatedKeyParser {
 }
 
 func (p *rotatedKeyParser) parse(event backend.Event) (types.Resource, error) {
-	if !p.baseParser.match(event.Item.Key) {
-		return nil, nil
-	}
-
 	switch event.Type {
 	case types.OpPut:
 		rotatedKey, err := services.UnmarshalProtoResource[*recordingencryptionv1.RotatedKey](

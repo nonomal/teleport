@@ -22,16 +22,16 @@ import "teleport/legacy/types/types.proto";
 option go_package = "github.com/gravitational/teleport/api/gen/proto/go/teleport/recordingencryption/v1;recordingencryptionv1";
 
 // The possible states a KeyPair can be in.
-enum KeyState {
+enum KeyPairState {
   // Represents a zero value.
-  KEY_STATE_UNSPECIFIED = 0;
+  KEY_PAIR_STATE_UNSPECIFIED = 0;
   // Represents an active key.
-  KEY_STATE_ACTIVE = 1;
+  KEY_PAIR_STATE_ACTIVE = 1;
   // Represents a key in the process of being rotated.
-  KEY_STATE_ROTATING = 2;
+  KEY_PAIR_STATE_ROTATING = 2;
   // Represents a key being rotated in that is inaccessible to at least one
   // auth server.
-  KEY_STATE_INACCESSIBLE = 3;
+  KEY_PAIR_STATE_INACCESSIBLE = 3;
 }
 
 // A key pair used with age to wrap and unwrap file keys for session recording encryption.
@@ -39,7 +39,7 @@ message KeyPair {
   // A key pair used with age to wrap and unwrap file keys for session recording encryption.
   types.EncryptionKeyPair key_pair = 1;
   // The current state of the key pair.
-  KeyState state = 2;
+  KeyPairState state = 2;
 }
 
 // RecordingEncryptionSpec contains the active key set for encrypted session recording.
@@ -67,21 +67,20 @@ message RecordingEncryption {
   RecordingEncryptionStatus status = 6;
 }
 
-// A rotated keypair with its fingerprint.
+// A rotated key pair previously used with age to wrap and unwrap file keys for session recording
+// encryption.
 message RotatedKeySpec {
-  // The fingerprint of the included public key which is a hex encoded SHA256 hash of its PKIX form.
-  // This should also be used as the lookup key for a RotatedKey resource.
-  string fingerprint = 1;
   // The rotated key pair previously used with age to wrap and unwrap file keys for session recording
-  // encryption. The public key and fingerprint help to identify specific keys and the private key is
-  // saved for historical replay purposes.
+  // encryption.
   types.EncryptionKeyPair encryption_key_pair = 2;
 }
 
 // The empty status of a RotatedKey.
 message RotatedKeyStatus {}
 
-// A previously rotated encryption key for session recordings kept for future replay.
+// A previously rotated encryption key for session recordings kept for future replay. The metadata.name
+// is expected to be the fingerprint of the public key contained in the spec, which is a hex encoded
+// SHA256 hash of its PKIX form.
 message RotatedKey {
   string kind = 1;
   string sub_kind = 2;
