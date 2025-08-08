@@ -143,6 +143,21 @@ message SearchPluginStaticCredentialsRequest {
   map<string, string> labels = 1;
 }
 
+// UpdatePluginStaticCredentialsRequest holds information for updating a plugin
+// static credential. The service will attempt to find the credential to update
+// based on the supplied plugin name and labels.
+message UpdatePluginStaticCredentialsRequest {
+  // Name is the name of the plugin resource that we're targeting
+  string name = 1;
+
+  // Labels is a set of labels used to disambiguate multiple credentials for the
+  // same plugin
+  map<string, string> labels = 2;
+
+  // Credential is the payload containing the updated credential
+  types.PluginStaticCredentialsSpecV1 credential = 3;
+}
+
 // SearchPluginStaticCredentialsResponse is the response type for
 // SearchPluginStaticCredentials
 message SearchPluginStaticCredentialsResponse {
@@ -209,6 +224,9 @@ service PluginService {
   // for. Only accessible by RoleAdmin and, in the case of Teleport Assist,
   // RoleProxy.
   rpc SearchPluginStaticCredentials(SearchPluginStaticCredentialsRequest) returns (SearchPluginStaticCredentialsResponse);
+
+  // UpdatePluginStaticCredentials
+  rpc UpdatePluginStaticCredentials(UpdatePluginStaticCredentialsRequest) returns (google.protobuf.Empty);
 
   // NeedsCleanup will indicate whether a plugin of the given type needs cleanup
   // before it can be created.
