@@ -952,15 +952,13 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 			}
 
 			// Check whether the port is ready to process.
-			if ps.data == nil || ps.error == nil || ps.processing {
-				streamsMu.Unlock()
-				continue
-			}
-			ps.processing = true
+			if ps.data != nil && ps.error != nil && !ps.processing {
+						ps.processing = true
 
-			// Process each port in a separate goroutine for concurrency testing.
-			wg.Add(1)
-			go s.handlePortForward(ctx, &wg, port, podName, ps.data, ps.error)
+						// Process each port in a separate goroutine for concurrency testing.
+						wg.Add(1)
+						go s.handlePortForward(ctx, &wg, port, podName, ps.data, ps.error)
+			}
 
 			streamsMu.Unlock()
 		}
