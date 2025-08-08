@@ -36,6 +36,7 @@ This document should fulfill the following requirements:
 - All auth servers in a cluster should be able to replay session recordings
   even if they did not encrypt them.
 - An encryption algorithm suitable for this workload.
+- Minimum 128-bit security level for cryptographic algorithms used.
 
 ### Encryption Algorithm
 
@@ -54,7 +55,8 @@ In order to support key unwrapping directly within HSM and KMS systems, this
 RFD proposes a custom `age` plugin that uses RSA 4096 keypairs in combination
 with the decryption APIs exposed by each keystore backend. The choice of RSA is
 largely due to it's wide compatibility across all keystores supported by
-Teleport.
+Teleport. A key size of 4096 bits was chosen to surpass the minimum 128-bit
+security level requirement.
 
 Below is a high level diagram showing how `age` encryption and decryption work:
 ![age diagram](assets/0127-age-high-level.png)
