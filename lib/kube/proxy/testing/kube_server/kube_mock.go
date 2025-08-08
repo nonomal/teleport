@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -909,6 +908,9 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
+	// Get pod name
+	podName := p.ByName("name")
+
 	type portStream struct {
 		data       httpstream.Stream
 		error      httpstream.Stream
@@ -921,7 +923,7 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 	for {
 		select {
 		case <-ctx.Done():
-			s.log.InfoContext(ctx, "Context canceled, stopping stream processing")
+			s.log.InfoContext(ctx, "Context canceled")
 			return nil, nil
 		case <-conn.CloseChan():
 			s.log.InfoContext(ctx, "Connection closed")
@@ -929,7 +931,7 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 		case stream := <-streamChan:
 			port := stream.Headers().Get(portHeader)
 			if port == "" {
-				s.log.WarnContext(ctx, "Received stream without port header")
+				s.log.WarnContext(ctx, "Skipping a stream without a port header")
 				continue
 			}
 
@@ -949,57 +951,91 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 				s.log.WarnContext(ctx, "Unknown stream type", "type", stream.Headers().Get(StreamType))
 			}
 
-			// Check whether port is ready to process.
-			if ps.data != nil && ps.error != nil && !ps.processing {
-				ps.processing = true
-
-				// Process each port in a separate goroutine for concurrency testing.
-				wg.Add(1)
-				go func(portNum string, dataStream, errorStream httpstream.Stream) {
-					defer wg.Done()
-					defer dataStream.Close()
-					defer errorStream.Close()
-
-					// Check context canceled.
-					select {
-					case <-ctx.Done():
-						s.log.InfoContext(ctx, "Port forward canceled", "port", portNum)
-						return
-					default:
-					}
-
-					// Read from source.
-					buf := make([]byte, 1024)
-					n, readErr := dataStream.Read(buf)
-					if readErr != nil {
-						// EOF is expected when a client closes a connection.
-						if !errors.Is(readErr, io.EOF) {
-							s.log.ErrorContext(ctx, "Read error", "port", portNum, "error", readErr)
-							if _, writeErr := errorStream.Write([]byte(readErr.Error())); writeErr != nil {
-								s.log.ErrorContext(ctx, "Unable to write error", "error", writeErr)
-							}
-						}
-						return
-					}
-
-					// Add a random delay to increase chances of race condition.
-					time.Sleep(time.Duration(rand.IntN(10)) * time.Millisecond)
-
-					// Write to target.
-					_, writeErr := fmt.Fprint(dataStream, PortForwardPayload, p.ByName("name"), string(buf[:n]))
-					if writeErr != nil {
-						s.log.ErrorContext(ctx, "Unable to write response", "error", writeErr)
-						if _, errWriteErr := errorStream.Write([]byte(writeErr.Error())); errWriteErr != nil {
-							s.log.ErrorContext(ctx, "Unable to write error", "error", errWriteErr)
-						}
-					}
-
-					s.log.InfoContext(ctx, "Port forward completed", "port", portNum)
-				}(port, ps.data, ps.error)
-
+			// Check whether the port is ready to process.
+			if ps.data == nil || ps.error == nil || ps.processing {
+				streamsMu.Unlock()
+				continue
 			}
+			ps.processing = true
+
+			// Process each port in a separate goroutine for concurrency testing.
+			wg.Add(1)
+			go s.handlePortForward(ctx, &wg, port, podName, ps.data, ps.error)
+
 			streamsMu.Unlock()
 		}
+	}
+}
+
+// handlePortForward reads and writes to a port-forward stream.
+func (s *KubeMockServer) handlePortForward(ctx context.Context, wg *sync.WaitGroup, port string, podName string, dataStream, errorStream httpstream.Stream) {
+	defer wg.Done()
+	defer dataStream.Close()
+	defer errorStream.Close()
+
+	// Read from source.
+	buf := make([]byte, 1024)
+	n, readErr := s.readWithCancel(ctx, dataStream, buf)
+
+	// Process any data received, regardless of error.
+	// Behavior is based on the io.Reader contract.
+	// Handles the case where Read returns data and io.EOF.
+	if n > 0 {
+		// Write to target.
+		_, writeErr := fmt.Fprint(dataStream, PortForwardPayload, podName, string(buf[:n]))
+		if writeErr != nil {
+			s.log.ErrorContext(ctx, "Unable to write response", "error", writeErr)
+			if _, errWriteErr := errorStream.Write([]byte(writeErr.Error())); errWriteErr != nil {
+				s.log.ErrorContext(ctx, "Unable to write error", "error", errWriteErr)
+			}
+		}
+		return
+	}
+
+	// Check for context cancellation.
+	if errors.Is(readErr, context.Canceled) {
+		s.log.InfoContext(ctx, "Port forward canceled", "port", port)
+		return
+	}
+
+	// Check for read error.
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		s.log.ErrorContext(ctx, "Read error", "port", port, "error", readErr)
+		if _, writeErr := errorStream.Write([]byte(readErr.Error())); writeErr != nil {
+			s.log.ErrorContext(ctx, "Unable to write error", "error", writeErr)
+		}
+		return
+	}
+
+	s.log.InfoContext(ctx, "Port forward completed", "port", port)
+}
+
+// readWithCancel reads an io.ReadCloser which may be canceled by a context.
+func (s *KubeMockServer) readWithCancel(ctx context.Context, r io.ReadCloser, buf []byte) (int, error) {
+	done := make(chan struct{})
+	defer close(done)
+
+	type result struct {
+		n   int
+		err error
+	}
+
+	resultCh := make(chan result, 1)
+
+	go func() {
+		n, err := r.Read(buf)
+		select {
+		case resultCh <- result{n, err}:
+		case <-done:
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		r.Close()
+		return 0, context.Canceled
+	case res := <-resultCh:
+		return res.n, res.err
 	}
 }
 

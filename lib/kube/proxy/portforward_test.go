@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -219,7 +221,7 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 
 	// creates a Kubernetes service with a configured cluster pointing to mock api server
 	testCtx := SetupTestContext(
-		t.Context(),
+		context.Background(),
 		t,
 		TestConfig{
 			Clusters: []KubeClusterConfig{{Name: kubeCluster, APIEndpoint: kubeMock.URL}},
@@ -246,81 +248,80 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Create multi-port forwarder
-	readyCh := make(chan struct{})
-	errCh := make(chan error)
-	stopCh := make(chan struct{})
-	t.Cleanup(func() { close(stopCh) })
-
 	// Create 100 ports.
+	// Encourage race condition detection.
 	portCnt := 100
-	port := 80
-	ports := make([]int, portCnt)
+	podPort := 80
+	podPorts := make([]int, portCnt)
 	for idx := 0; idx < portCnt; idx++ {
-		ports[idx] = port
-		port++
+		podPorts[idx] = podPort
+		podPort++
 	}
 
-	fw := spdyPortForwardClientBuilder(t, portForwardRequestConfig{
+	readyCh := make(chan struct{})
+	stopCh := make(chan struct{})
+
+	forwarder := spdyPortForwardClientBuilder(t, portForwardRequestConfig{
 		podName:      podName,
 		podNamespace: podNamespace,
 		restConfig:   config,
-		podPorts:     ports,
+		podPorts:     podPorts,
 		stopCh:       stopCh,
 		readyCh:      readyCh,
 	})
-	t.Cleanup(fw.Close)
 
-	go func() {
-		defer close(errCh)
-		errCh <- trace.Wrap(fw.ForwardPorts())
-	}()
+	forwarderCh := make(chan error, 1)
+	t.Cleanup(func() {
+		// Graceful shutdown.
+		close(stopCh)
 
+		forwarder.Close()
+	})
+	go func() { forwarderCh <- forwarder.ForwardPorts() }()
+
+	// Wait for port forwarding to be ready.
 	select {
-	case err := <-errCh:
-		t.Fatalf("Received error on errCh instead of ready signal: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for port forwarding")
 	case <-readyCh:
 	}
-	
+
 	// Port forwarding is ready.
-	ports, err := fw.GetPorts()
+	portPairs, err := forwarder.GetPorts()
 	require.NoError(t, err)
 
 	g, _ := errgroup.WithContext(t.Context())
-	for _, port := range ports {
-		p := port
+	for _, portPair := range portPairs {
+		p := portPair
 
 		g.Go(func() error {
-			// Add a random delay to encourage race conditions.
-			time.Sleep(time.Duration(rand.IntN(20)) * time.Millisecond)
+			// Randomize routine scheduling for concurrency testing.
+			if rand.Float32() < 0.1 {
+				runtime.Gosched()
+			}
 
-			conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", p.Local))
+			conn, err := net.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(int(p.Local))))
 			if err != nil {
-				return fmt.Errorf("port %d dial failed: %w", p.Local, err)
+				return fmt.Errorf("unable to dial local port %d: %w", p.Local, err)
 			}
 			defer conn.Close()
 
 			testData := []byte(fmt.Sprintf("test-data-port-%d", p.Local))
 			_, err = conn.Write(testData)
 			if err != nil {
-				return fmt.Errorf("port %d write failed: %w", p.Local, err)
-			}
-
-			// Set read timeout to avoid hanging.
-			if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-				return fmt.Errorf("port %d failed to set read deadline: %w", p.Local, err)
+				return fmt.Errorf("unable to write local port %d: %w", p.Local, err)
 			}
 
 			// Read from source.
 			buf := make([]byte, 1024)
 			n, err := conn.Read(buf)
 			if err != nil {
-				return fmt.Errorf("port %d read failed: %w", p.Local, err)
+				return fmt.Errorf("unable to read from local port %d: %w", p.Local, err)
 			}
 
 			expected := fmt.Sprintf("%s%s%s", testingkubemock.PortForwardPayload, podName, string(testData))
 			if !strings.Contains(string(buf[:n]), expected) {
-				return fmt.Errorf("port %d unexpected response: got %q, want substring %q",
+				return fmt.Errorf("unexpected response on local port %d: expect %q, actual %q",
 					p.Local, string(buf[:n]), expected)
 			}
 
@@ -330,6 +331,7 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 
 	err = g.Wait()
 	require.NoError(t, err, "Port forwarding checks failed")
+
 }
 
 func portforwardURL(namespace, podName string, host string, query string) (*url.URL, error) {
