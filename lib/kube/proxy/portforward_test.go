@@ -22,12 +22,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -252,8 +250,8 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 	// Encourage race condition detection.
 	const portCount = 100
 	podPort := 80
-	podPorts := make([]int, portCnt)
-	for idx := 0; idx < portCnt; idx++ {
+	podPorts := make([]int, portCount)
+	for idx := 0; idx < portCount; idx++ {
 		podPorts[idx] = podPort
 		podPort++
 	}

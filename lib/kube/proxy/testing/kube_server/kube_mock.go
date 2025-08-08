@@ -953,11 +953,12 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 
 			// Check whether the port is ready to process.
 			if ps.data != nil && ps.error != nil && !ps.processing {
-						ps.processing = true
+				ps.processing = true
 
-						// Process each port in a separate goroutine for concurrency testing.
-						wg.Add(1)
-						go s.handlePortForward(ctx, &wg, port, podName, ps.data, ps.error)
+				// Process each port.
+				// Use a separate goroutine with each port for concurrency testing.
+				wg.Add(1)
+				go s.handlePortForward(ctx, &wg, port, podName, ps.data, ps.error)
 			}
 
 			streamsMu.Unlock()
@@ -968,12 +969,22 @@ func (s *KubeMockServer) portforward(w http.ResponseWriter, req *http.Request, p
 // handlePortForward reads and writes to a port-forward stream.
 func (s *KubeMockServer) handlePortForward(ctx context.Context, wg *sync.WaitGroup, port string, podName string, dataStream, errorStream httpstream.Stream) {
 	defer wg.Done()
-	defer dataStream.Close()
 	defer errorStream.Close()
+
+	// Ensure dataStream is closes once.
+	var once sync.Once
+	closeDataStream := func() {
+		once.Do(func() { dataStream.Close() })
+	}
+	defer closeDataStream()
+
+	// Unblock stream read when the context cancels.
+	stop := context.AfterFunc(ctx, closeDataStream)
+	defer stop()
 
 	// Read from source.
 	buf := make([]byte, 1024)
-	n, readErr := s.readWithCancel(ctx, dataStream, buf)
+	n, readErr := dataStream.Read(buf)
 
 	// Process any data received, regardless of error.
 	// Behavior is based on the io.Reader contract.
@@ -991,7 +1002,7 @@ func (s *KubeMockServer) handlePortForward(ctx context.Context, wg *sync.WaitGro
 	}
 
 	// Check for context cancellation.
-	if errors.Is(readErr, context.Canceled) {
+	if ctx.Err() != nil {
 		s.log.InfoContext(ctx, "Port forward canceled", "port", port)
 		return
 	}
@@ -1006,35 +1017,6 @@ func (s *KubeMockServer) handlePortForward(ctx context.Context, wg *sync.WaitGro
 	}
 
 	s.log.InfoContext(ctx, "Port forward completed", "port", port)
-}
-
-// readWithCancel reads an io.ReadCloser which may be canceled by a context.
-func (s *KubeMockServer) readWithCancel(ctx context.Context, r io.ReadCloser, buf []byte) (int, error) {
-	done := make(chan struct{})
-	defer close(done)
-
-	type result struct {
-		n   int
-		err error
-	}
-
-	resultCh := make(chan result, 1)
-
-	go func() {
-		n, err := r.Read(buf)
-		select {
-		case resultCh <- result{n, err}:
-		case <-done:
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		r.Close()
-		return 0, context.Canceled
-	case res := <-resultCh:
-		return res.n, res.err
-	}
 }
 
 // httpStreamReceived is the httpstream.NewStreamHandler for port
