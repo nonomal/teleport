@@ -250,7 +250,7 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 
 	// Create 100 ports.
 	// Encourage race condition detection.
-	portCnt := 100
+	const portCount = 100
 	podPort := 80
 	podPorts := make([]int, portCnt)
 	for idx := 0; idx < portCnt; idx++ {
