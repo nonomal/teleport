@@ -472,6 +472,9 @@ func (c *TokensCommand) List(ctx context.Context, client *authclient.Client) err
 	}
 
 	tokens, err := getAllTokens(ctx, client)
+	if err != nil {
+		return trace.Wrap(err)
+	}
 
 	tokens = slices.DeleteFunc(tokens, func(token types.ProvisionToken) bool {
 		tokenLabels := token.GetMetadata().Labels
