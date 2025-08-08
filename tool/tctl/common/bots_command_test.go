@@ -255,7 +255,7 @@ func TestAddAndListBotInstancesJSON(t *testing.T) {
 	client := testenv.MakeDefaultAuthClient(t, process)
 
 	tokens, err := stream.Collect(clientutils.Resources(ctx, func(ctx context.Context, pageSize int, pageKey string) ([]types.ProvisionToken, string, error) {
-		client.ListProvisionTokens(ctx, pageSize, pageKey, nil, "")
+		return client.ListProvisionTokens(ctx, pageSize, pageKey, nil, "")
 	}))
 	require.NoError(t, err)
 	require.Empty(t, tokens)
