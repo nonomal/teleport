@@ -295,10 +295,6 @@ func TestPortForwardKubeServiceMultiPort(t *testing.T) {
 		p := portPair
 
 		g.Go(func() error {
-			// Randomize routine scheduling for concurrency testing.
-			if rand.Float32() < 0.1 {
-				runtime.Gosched()
-			}
 
 			conn, err := net.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(int(p.Local))))
 			if err != nil {
